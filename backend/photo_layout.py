@@ -2,6 +2,9 @@
 import base64
 import json
 import os
+from collections import deque
+from threading import Lock
+from time import monotonic
 from pathlib import Path
 from urllib.error import URLError
 from urllib.parse import quote
@@ -13,6 +16,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 router = APIRouter()
 config_file = Path(__file__).resolve().parents[1] / "studyspot-agent" / ".env"
+cloud_calls = deque()
+quota_lock = Lock()
 
 
 class Box(BaseModel):
@@ -37,7 +42,14 @@ class DetectionFrame(BaseModel):
 def run_workflow(image, settings):
     key = settings.get("ROBOFLOW_API_KEY")
     if not key:
-        raise HTTPException(503, "Set ROBOFLOW_API_KEY on the backend to enable photo detection.")
+        raise HTTPException(503, "Cloud detection is not configured yet.")
+    with quota_lock:
+        now = monotonic()
+        while cloud_calls and now - cloud_calls[0] >= 3600:
+            cloud_calls.popleft()
+        if len(cloud_calls) >= int(settings.get("TOPA_CLOUD_CALLS_PER_HOUR") or 360):
+            raise HTTPException(429, "The public demo has reached its hourly cloud analysis limit.")
+        cloud_calls.append(now)
     workspace = settings.get("ROBOFLOW_WORKSPACE") or "husnis-workspace-ajtaz"
     workflow = settings.get("ROBOFLOW_WORKFLOW") or "table-occupancy-prototype-1795260896010"
     endpoint = f"https://serverless.roboflow.com/{quote(workspace, safe='')}/workflows/{quote(workflow, safe='')}"

@@ -83,7 +83,7 @@ def authorize_update(credentials: HTTPAuthorizationCredentials | None = Depends(
 
 
 app.include_router(upload_router, dependencies=[Depends(authorize_update)])
-app.include_router(photo_router, dependencies=[Depends(authorize_update)])
+app.include_router(photo_router)
 
 
 @app.post("/update/room", response_model=RoomCounts, dependencies=[Depends(authorize_update)])

@@ -17,34 +17,37 @@
 <main>
   <a href="/">← Live dashboard</a>
   <h1>Table detection</h1>
-  <p>Roboflow detects tables in your photo. Claude analyzes the detection results. For videos, sampled frames are sent to Roboflow while playback runs.</p>
+  <p>Choosing a file starts analysis automatically. Photos and sampled video frames are sent to Roboflow. The team demo video can also run locally when cloud detection is unavailable.</p>
   <section>
     <label>Photo or video <input id="file" type="file" accept="image/jpeg,image/png,video/mp4"></label>
-    <button id="run" disabled>Start detection</button>
+    <button id="run" hidden>Restart detection</button>
     <button id="stop" hidden>Stop sampling</button>
-    <label id="auth" hidden>Backend write token <input type="password" id="token" autocomplete="off"></label>
     <p id="message" role="status">Choose a file to begin.</p>
     <p id="analysis" hidden style="white-space:pre-wrap"></p>
     <video id="video" hidden muted playsinline controls loop></video>
     <canvas id="result" hidden aria-label="Selected frame with detected table locations"></canvas>
   </section>
 </main>
+<script src="/demo-detector.js"></script>
 <script>
 const el = id => document.getElementById(id);
 const file = el("file"), video = el("video"), result = el("result"), run = el("run");
-let source, objectURL, generation = 0, timer;
+let source, objectURL, generation = 0, timer, fallback;
 function stop() {
   generation++;
   clearTimeout(timer);
   video.pause();
   el("stop").hidden = true;
   run.disabled = !source;
+  run.hidden = !source;
 }
 el("stop").onclick = () => { stop(); el("message").textContent = "Sampling stopped."; };
 file.onchange = async () => {
   stop();
   const version = generation;
   source = null;
+  fallback = null;
+  run.hidden = true;
   el("analysis").hidden = true;
   run.disabled = true;
   video.hidden = result.hidden = true;
@@ -59,6 +62,9 @@ file.onchange = async () => {
       if (version !== generation) return;
       source = video;
       video.hidden = false;
+      const detector = await demoDetector(selected, video);
+      if (version !== generation) return;
+      fallback = detector;
     } else {
       const image = new Image();
       image.src = objectURL;
@@ -67,16 +73,18 @@ file.onchange = async () => {
       source = image;
     }
     run.disabled = false;
-    el("message").textContent = "Ready to detect tables.";
+    await run.onclick();
   } catch { if (version === generation) el("message").textContent = "This file could not be opened."; }
 };
 run.onclick = async () => {
   stop();
   const version = generation;
   run.disabled = true;
+  run.hidden = true;
   result.hidden = true;
   el("analysis").hidden = true;
   const movie = source === video;
+  let local = false;
   el("stop").hidden = !movie;
   async function sample() {
     const started = performance.now();
@@ -88,13 +96,18 @@ run.onclick = async () => {
     const blob = await new Promise(resolve => frame.toBlob(resolve, "image/jpeg", .92));
     if (version !== generation) return;
     data.append("file", blob, "frame.jpg");
-    const headers = el("token").value ? {Authorization: "Bearer " + el("token").value} : {};
     const endpoint = movie ? "/detect/photo" : "/detect/photo?analyze=true";
-    const response = await fetch(endpoint, {method: "POST", body: data, headers});
-    const body = await response.json();
-    if (version !== generation) return;
-    if (response.status === 401) el("auth").hidden = false;
-    if (!response.ok) throw Error(body.detail || "Detection failed.");
+    let body;
+    if (!local) {
+      const response = await fetch(endpoint, {method: "POST", body: data});
+      body = await response.json();
+      if (version !== generation) return;
+      if (!response.ok) {
+        if (movie && fallback && [429,502,503].includes(response.status)) local = true;
+        else throw Error(body.detail || "Detection failed.");
+      }
+    }
+    if (local) body = fallback(frame);
     result.width = frame.width;
     result.height = frame.height;
     const ctx = result.getContext("2d");
@@ -113,7 +126,7 @@ run.onclick = async () => {
       ctx.fillText(box.label, x + 4, top + size);
     }
     result.hidden = false;
-    el("message").textContent = body.predictions.length + " table boxes detected.";
+    el("message").textContent = local ? "Local demo analysis · 21 calibrated tables · estimated seat occupancy" : body.predictions.length + " table boxes detected.";
     if (!movie) {
       el("analysis").textContent = body.analysis ? "Claude analysis\n" + body.analysis : body.analysis_error;
       el("analysis").hidden = false;
