@@ -8,7 +8,7 @@ Smart Table Finder shows students, in real time, which tables in a campus study 
 
 📄 **Full project report:** [docs/report.pdf](docs/report.pdf)
 
-> **Team:** Martin Richiello, GUO ZHIQIANG, Kaysun Molla, Husni Shahrour
+> **Team:** Martin Richiello, Guo Zhiqiang, Kaysun Molla, Husni Shahrour
 
 ---
 
