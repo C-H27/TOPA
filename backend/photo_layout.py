@@ -14,6 +14,8 @@ from dotenv import dotenv_values
 from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from .openai_photo import interpret, prepare_photo
+
 router = APIRouter()
 config_file = Path(__file__).resolve().parents[1] / "studyspot-agent" / ".env"
 cloud_calls = deque()
@@ -79,11 +81,14 @@ def analyze_boxes(frame, key, model):
 
 @router.post("/detect/photo")
 def photo_layout(file: UploadFile, analyze: bool = False):
-    image = file.file.read(8 * 1024 * 1024 + 1)
-    if len(image) > 8 * 1024 * 1024:
-        raise HTTPException(413, "Choose an image under 8 MiB.")
+    limit = (15 if analyze else 8) * 1024 * 1024
+    image = file.file.read(limit + 1)
+    if len(image) > limit:
+        raise HTTPException(413, f"Choose an image up to {limit // (1024 * 1024)} MiB.")
     if not image.startswith((b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n")):
         raise HTTPException(415, "Choose a JPEG or PNG image.")
+    if analyze:
+        pixels, image = prepare_photo(image)
     settings = {**dotenv_values(config_file), **os.environ}
     result = run_workflow(image, settings)
     output_name = settings.get("ROBOFLOW_OUTPUT") or "table_statuses"
@@ -96,6 +101,12 @@ def photo_layout(file: UploadFile, analyze: bool = False):
         raise HTTPException(502, f"Expected table boxes and image dimensions in workflow output '{output_name}'.") from exc
     response = frame.model_dump()
     if analyze:
+        if settings.get("OPENAI_API_KEY"):
+            try:
+                response.update(interpret(pixels, frame, settings))
+            except (OSError, ValueError, TypeError, IndexError, KeyError):
+                response["analysis_error"] = "Roboflow detection finished. OpenAI interpretation is unavailable."
+            return response
         field = settings.get("ROBOFLOW_ANALYSIS_OUTPUT") or "analysis"
         analysis = result["outputs"][0].get(field)
         if not analysis and settings.get("ANTHROPIC_API_KEY") and settings.get("ANTHROPIC_MODEL"):
@@ -105,6 +116,12 @@ def photo_layout(file: UploadFile, analyze: bool = False):
                 response["analysis_error"] = "Table detection finished, but the Claude request failed."
         if isinstance(analysis, str) and analysis.strip():
             response["analysis"] = analysis.strip()
+            response["analysis_provider"] = "Workflow" if output.get(field) else "Claude"
         else:
             response.setdefault("analysis_error", "Table detection finished. Claude analysis is unavailable.")
     return response
+
+
+@router.post("/analyze")
+def analyze_photo(image: UploadFile):
+    return photo_layout(image, analyze=True)

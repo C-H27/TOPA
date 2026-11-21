@@ -120,3 +120,7 @@ same optional authorization token as the other update routes.
 `GET /status?include_room=true` returns
 `{"tables":[...],"people_in_frame":8,"people_so_far":27}`.
 Plain `GET /status` still returns the dashboard's table array.
+
+### OpenAI photo interpretation
+
+Set `OPENAI_API_KEY` in the backend service environment. Optionally set `OPENAI_MODEL` (default `gpt-4.1-mini`). Open the detection page and choose a JPEG or PNG. The page calls `POST /analyze` with multipart field `image`. Roboflow receives the resized photo. OpenAI receives a JPEG with the workflow boxes drawn on it and the corresponding coordinates and labels. The response includes the English interpretation and estimated table layout. If OpenAI fails, the page still displays the Roboflow boxes. The video replay runs independently.

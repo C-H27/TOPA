@@ -17,7 +17,7 @@
 <main>
   <a href="/">← Live dashboard</a>
   <h1>Table detection</h1>
-  <p>Choosing a file starts analysis automatically. Photos and sampled video frames are sent to Roboflow. The team demo video can also run locally when cloud detection is unavailable.</p>
+  <p>Choosing a file starts analysis automatically. Roboflow detects tables. When configured, OpenAI interprets labelled photos and estimates seat availability. The team demo video can also run locally when cloud detection is unavailable.</p>
   <section>
     <button id="choose" type="button">Choose photo or video</button>
     <input id="file" type="file" hidden accept="image/jpeg,image/png,video/mp4">
@@ -26,6 +26,7 @@
     <button id="stop" hidden>Stop sampling</button>
     <p id="message" role="status">Choose a file to begin.</p>
     <p id="analysis" hidden style="white-space:pre-wrap"></p>
+    <canvas id="plan" hidden aria-label="Estimated table layout"></canvas>
     <div id="player" hidden>
       <video id="video" hidden muted playsinline loop></video>
       <div>
@@ -73,6 +74,7 @@ file.onchange = async () => {
   fallback = null;
   run.hidden = true;
   el("analysis").hidden = true;
+  el("plan").hidden = true;
   run.disabled = true;
   el("player").hidden = video.hidden = result.hidden = true;
   if (objectURL) URL.revokeObjectURL(objectURL);
@@ -108,6 +110,7 @@ run.onclick = async () => {
   run.hidden = true;
   result.hidden = true;
   el("analysis").hidden = true;
+  el("plan").hidden = true;
   const movie = source === video;
   let local = Boolean(movie && fallback);
   el("stop").hidden = !movie;
@@ -120,8 +123,8 @@ run.onclick = async () => {
     const data = new FormData();
     const blob = await new Promise(resolve => frame.toBlob(resolve, "image/jpeg", .92));
     if (version !== generation) return;
-    data.append("file", blob, "frame.jpg");
-    const endpoint = movie ? "/detect/photo" : "/detect/photo?analyze=true";
+    data.append(movie ? "file" : "image", movie ? blob : file.files[0], movie ? "frame.jpg" : file.files[0].name);
+    const endpoint = movie ? "/detect/photo" : "/analyze";
     let body;
     if (!local) {
       const response = await fetch(endpoint, {method: "POST", body: data});
@@ -153,8 +156,26 @@ run.onclick = async () => {
     result.hidden = false;
     el("message").textContent = local ? "Local demo analysis · 21 calibrated tables · estimated seat occupancy" : body.predictions.length + " table boxes detected.";
     if (!movie) {
-      el("analysis").textContent = body.analysis ? "Claude analysis\n" + body.analysis : body.analysis_error;
+      el("analysis").textContent = body.analysis ? (body.analysis_provider || "Photo") + " analysis\n" + body.analysis : body.analysis_error;
       el("analysis").hidden = false;
+      if (body.tables?.length) {
+        const plan = el("plan");
+        plan.width = 960;
+        plan.height = Math.max(1, Math.round(960 * body.image.height / body.image.width));
+        const pen = plan.getContext("2d");
+        pen.fillStyle = "#f2f4f7";
+        pen.fillRect(0, 0, plan.width, plan.height);
+        for (const t of body.tables) {
+          const x = t.x * plan.width, y = t.y * plan.height;
+          pen.fillStyle = {free:"#15803d", partly:"#a16207", full:"#b91c1c", items:"#475569"}[t.status];
+          pen.fillRect(x, y, t.width * plan.width, t.height * plan.height);
+          pen.fillStyle = "white";
+          pen.font = "bold 14px system-ui";
+          pen.fillText("T" + t.table_id + " · " + t.status + " · " + t.people + "/" + t.seats,
+                       x + 2, y + 15, Math.max(1, t.width * plan.width - 4));
+        }
+        plan.hidden = false;
+      }
     }
     if (movie) timer = setTimeout(next, Math.max(0, (local ? 1000 : 10000) - (performance.now() - started)));
     else run.disabled = false;
