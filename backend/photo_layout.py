@@ -86,9 +86,12 @@ def photo_layout(file: UploadFile, analyze: bool = False):
         raise HTTPException(415, "Choose a JPEG or PNG image.")
     settings = {**dotenv_values(config_file), **os.environ}
     result = run_workflow(image, settings)
-    output_name = settings.get("ROBOFLOW_OUTPUT") or "predictions"
+    output_name = settings.get("ROBOFLOW_OUTPUT") or "table_statuses"
     try:
-        frame = DetectionFrame.model_validate(result["outputs"][0][output_name])
+        output = result["outputs"][0]
+        if output.get("counts_valid") is False or output.get("detection_error") is True:
+            raise HTTPException(502, "Roboflow flagged this frame as unreliable.")
+        frame = DetectionFrame.model_validate(output[output_name])
     except (ValidationError, KeyError, IndexError, TypeError) as exc:
         raise HTTPException(502, f"Expected table boxes and image dimensions in workflow output '{output_name}'.") from exc
     response = frame.model_dump()

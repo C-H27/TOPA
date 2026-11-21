@@ -62,7 +62,7 @@ A status only changes if it stays the same for about 15 seconds, so someone walk
 Copy `studyspot-agent/.env.example` to `studyspot-agent/.env` and set
 `ROBOFLOW_API_KEY` on the backend computer. Check the workspace and workflow
 against the model team's current deployment. Set `ROBOFLOW_OUTPUT` to the named
-object-detection output for tables (default `predictions`). This output must
+object-detection output for tables (default `table_statuses`). This output must
 include image dimensions and the center, width, height and class of each box
 in the input image coordinate system.
 
@@ -72,7 +72,7 @@ on the server. The public detection endpoint allows 360 requests per hour per
 backend process by default (set `TOPA_CLOUD_CALLS_PER_HOUR` to adjust).
 The calibrated 60-second demo video can fall back to browser-based seat estimation.
 Photos use one request.
-Videos loop and sample at most one frame per second, with one request in flight.
+Videos loop and sample at most one cloud frame per ten seconds, with one request in flight.
 **Stop sampling** ends the replay. The result shows the exact sampled frame
 with each table's original class label. A valid empty prediction list shows zero boxes.
 The dashboard's local seat-count demo runs separately.
