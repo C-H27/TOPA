@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from secrets import compare_digest
 from time import monotonic
+from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, HTMLResponse
@@ -51,6 +52,14 @@ class TableReadings(BaseModel):
     tables: list[TableReading]
 
 
+class DashboardTable(BaseModel):
+    table_id: int
+    seats: int
+    people: int
+    status: Literal["free", "partly", "full", "items"]
+    items_seconds: int
+
+
 def authorize_update(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
     if write_token and (
         credentials is None
@@ -76,11 +85,26 @@ async def update_batch(batch: CountsBatch):
     return {"tables": [record(counts, now) for counts in batch.tables]}
 
 
-@app.get("/status", response_model=TableReadings)
+def current_readings():
+    now = monotonic()
+    return [tables[key].snapshot(key, now) for key in sorted(tables)]
+
+
+@app.get("/status", response_model=list[DashboardTable])
 async def status(response: Response):
     response.headers["Cache-Control"] = "no-store"
-    now = monotonic()
-    return {"tables": [tables[key].snapshot(key, now) for key in sorted(tables)]}
+    aliases = {"free": "free", "partly_taken": "partly", "full": "full", "items_only": "items"}
+    return [
+        {**row, "status": aliases[row["status"]]}
+        for row in current_readings()
+        if row["status"] in aliases
+    ]
+
+
+@app.get("/api/status", response_model=TableReadings)
+async def detailed_status(response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    return {"tables": current_readings()}
 
 
 @app.get("/", include_in_schema=False)

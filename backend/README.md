@@ -1,6 +1,15 @@
 # Table status API
 
-From the repository root, run with Python 3.10 or later:
+On Windows, double-click `Start-Backend.cmd` in the repository root.
+The first run creates a private Python environment and installs dependencies.
+Keep the window open while running the detector. Open the printed `/docs`
+address to verify the API is running.
+
+For the phone demo, run `.\Start-Backend.cmd --lan` in PowerShell. If port
+8000 is busy, set `$env:TOPA_PORT = '8001'` first and use that port in both
+the detector URL and the QR code.
+
+To start manually from the repository root, use Python 3.10 or later:
 
 ```sh
 python -m pip install -r backend/requirements.txt
@@ -22,11 +31,16 @@ curl http://localhost:8000/status
 
 ## Dashboard handoff
 
-Poll `GET /status` every two seconds. It returns `{"tables":[]}` before the first update. After the example above:
+Poll `GET /status` every two seconds. It returns a JSON list. After the example above:
 
 ```json
-{"tables":[{"table_id":1,"seats":4,"people":0,"items":1,"status":"items_only","items_seconds":2,"pending_status":null}]}
+[{"table_id":1,"seats":4,"people":0,"status":"items","items_seconds":2}]
 ```
+
+The dashboard values are `free`, `partly`, `full`, and `items`. An empty list means
+there are no confirmed, fresh tables. Treat any missing table as unknown and clear
+its previous display. `GET /api/status` provides the detailed `{"tables":[...]}`
+response with the original status names, raw counts, and pending states.
 
 The latest counts are instantaneous. The status is confirmed by matching observations at least **2 seconds** apart. A changed candidate restarts confirmation for that table. People at or above capacity are `full`; positive counts below capacity are `partly_taken`. With zero people, belongings give `items_only` and an empty table gives `free`. The belongings timer starts at the first observation in the confirmed interval and resets when a different status is confirmed.
 
@@ -59,7 +73,7 @@ Use `status` for the table colour.
 2. Agree on 3 or 4 table IDs and capacities with the detector and dashboard
    owners. Confirm that every monitored table gets a record on each
    detection cycle, including empty tables with both counts set to zero.
-3. Open `/status` on the demo laptop and open the dashboard on a phone
+3. Open `/api/status` on the demo laptop and open the dashboard on a phone
    using the laptop's LAN address. Verify that the same table ID updates
    on both screens. Display `status` and use `items_seconds` for the timer.
 4. Replay the video at normal playback speed. Pick a section where someone
