@@ -1,0 +1,188 @@
+Smart Table Finder (TOPA): How the System Works
+Nov 21, 2026 · @Husni
+Team: Martin Richiello, Guo Zhiqiang, Kaysun Molla, Husni Shahrour · Repository: github.com/C-H27/TOPA
+Summary
+Smart Table Finder (TOPA) shows students which tables in the Learning Center are free, semi-occupied, occupied or holding only belongings, on a live floor plan they can open on their phones. A detector watches the camera view and reports how many people and items are at each table. A FastAPI backend confirms those readings over time and turns them into a status. A browser dashboard shows the result and refreshes every two seconds.
+The system has three parts that each do one job: the detector counts, the backend decides, and the dashboard displays. They only share small JSON messages, so each part can be built, tested and replaced on its own. Staff can also upload a recorded video on an admin page to see how every table changed over the course of the clip.
+1. System Overview
+Information flows one way on the live path: the detector pushes counts to the backend, and the dashboard pulls statuses from the backend. The admin page uses a separate path to analyse a whole video clip.
+The backend sits in the middle and is the only part that decides a table's status. The detector never talks to the dashboard, and the dashboard never sees video. This keeps each part simple: if the team swaps in a different detector, such as a YOLO or Roboflow model, the backend and dashboard do not change as long as the detector sends the same messages.
+2. Detection and the Handoff to the Backend
+The detector's only job is to report, for each table it watches, how many people are seated there and how many belongings are on it. It does not decide whether a table is free or taken; the backend does that.
+The bundled detector (studyspot-agent/main.py) works on the fixed Learning Center camera view. It estimates seated occupancy from pixel differences in each table's area of the image, which is light enough to run on an ordinary laptop. It currently watches the wall desks D1 to D6 (table IDs 16 to 21).
+What the detector sends. Every 2 to 3 seconds, the detector posts one JSON object per table to POST /update:
+{"table_id": 1, "seats": 4, "people": 0, "items": 1}
+Two rules keep the data reliable:
+• Every monitored table is reported on every cycle, including empty tables with both counts set to zero. A missing report means "no information", not "empty".
+• IDs and capacities are positive integers, and counts are non-negative integers. The backend rejects anything else.
+A detector can also send a whole frame's results in one request to POST /update/batch as {"tables": [...]}, with 1 to 100 distinct table IDs. If any row is invalid or an ID repeats, the whole batch is rejected, so the backend never stores half a frame.
+Because the backend only receives counts, any detector that follows this format can replace the bundled one. A YOLO or Roboflow model, for example, could count people and bags inside each table area and post the same messages.
+3. Backend: Turning Counts into a Status
+The backend is a FastAPI application. It keeps the current observations in memory, so it starts empty after every restart, and it runs with a single worker so that all requests see the same data.
+Status rules
+The backend applies four rules to the latest counts for each table:
+Status (API)
+Dashboard label
+Colour
+Rule
+free
+Empty
+Green
+Zero people and zero items
+partly_taken (partly on /status)
+Semi-occupied
+Yellow
+At least one person, fewer than the seat count
+full
+Occupied
+Red
+People at or above the seat count
+items_only (items on /status)
+Items only
+Grey
+Zero people, but belongings present
+unknown
+No data
+Light grey
+Startup, or no fresh observation
+Confirmation: why tables don't flicker
+A single reading is never trusted on its own. When the counts point to a new status, it becomes a pending status, and the backend only confirms it once it has matching observations at least 2 seconds apart. Until then, the table keeps showing its previous confirmed status. The pending_status field shows what is waiting, or null if nothing is.
+Three timing rules protect against bad data:
+• A different candidate restarts confirmation. If the next reading points to yet another status, the clock starts again.
+• A gap longer than 4 seconds restarts a pending change. This allows for the detector's normal 2 to 3 second rhythm, but stops an old reading from confirming a change after a brief disconnect.
+• After 12 seconds without observations, a table becomes unknown. Its counts become null and its timer resets to zero. The next update starts a new confirmation.
+If a table's seat count changes, its status returns to unknown while the backend confirms the new reading.
+The belongings timer
+For the items-only status, items_seconds shows how long belongings have been left without anyone at the table. The timer starts at the first observation in the confirmed interval and resets whenever a different status is confirmed. The dashboard uses it to show, for example, that a table has been "saved" with a bag for several minutes.
+API endpoints
+Endpoint
+Used by
+Purpose
+POST /update
+Detector
+One table's counts
+POST /update/batch
+Detector
+1 to 100 tables from one frame
+POST /update/room
+Detector
+Room totals: people_in_frame, people_so_far
+GET /status
+Live dashboard
+Simple list: table_id, seats, people, status, items_seconds
+GET /status?include_room=true
+Live dashboard
+{"tables": [...], "people_in_frame", "people_so_far"}
+GET /api/status
+Testing, debugging
+Full detail: original status names, raw counts, pending states
+POST /upload
+Admin page
+Analyse a video clip (Section 5)
+GET /docs
+Developers
+Interactive API documentation
+An empty list from /status means no table currently has a confirmed, fresh status. The dashboard treats any table missing from the list as unknown and clears its old display.
+Room totals
+The detector can also report room-wide numbers to POST /update/room: people_in_frame (people visible now) and people_so_far (unique visitors today, which the detector deduplicates itself). Either value can be null if the detector can't measure it. The backend does not add up frame counts to estimate visitors, and the last room update expires after 30 seconds.
+Write protection
+If TOPA_WRITE_TOKEN is set before the server starts, every write route (/update, /update/batch, /update/room and /upload) requires the header Authorization: Bearer <token>. Reading /status stays open, so phones can view the dashboard without a token. This stops other people on a shared Wi-Fi network from sending fake updates.
+4. Dashboard
+The dashboard is plain HTML, CSS and JavaScript, with no build step and no internet dependency, so it works on a closed network during a demo. The backend serves it from the frontend/ folder at /.
+File
+Page
+Audience
+index.html
+Live dashboard at /
+Students: which tables are free right now
+admin.html
+Admin page at /admin.html
+Staff: upload a video and see results over time
+layout.js
+Shared room layout and table IDs
+Both pages
+style.css
+Shared styling
+Both pages
+The two pages link to each other through the Live and Admin buttons in the header.
+Live dashboard
+Every 2 seconds, the page calls GET /status?include_room=true and redraws the floor plan. Each table card shows its colour, label and seat count, and items-only tables show how long belongings have been left. A summary bar counts empty, semi-occupied, occupied and items-only tables, plus people now and people so far today. People so far shows "–" until the backend sends it. The page accepts either reply format: a plain list of tables, or the object with room totals.
+Room layout and table IDs
+The floor plan matches the Learning Center camera view, and the IDs match the detector's layout() function:
+Table IDs
+Shown as
+Area
+1 to 3
+G1 to G3
+Group Rooms 1 to 3 (top)
+4 to 15
+T1 to T12
+Study tables, 4 × 3 grid, left to right, top to bottom
+16 to 23
+D1 to D8
+Wall desks on the right, top to bottom
+Any table that never appears in the data is hidden automatically, so only the desks the detector watches (currently 16 to 21) are shown. Seat counts come from the data, not the page. To change the layout or IDs, the team only edits layout.js.
+5. Video Upload Analysis
+The admin page lets staff check how the system reads a recorded clip, without a live camera. This path is separate from the live status: an uploaded video never changes what students see on the live dashboard.
+1.  On admin.html, staff choose an MP4 from the configured fixed-camera scene (up to 100 MB) and press Analyse video. If the server uses a write token, they enter it in the token box.
+2.  The page sends the file to POST /upload as multipart form data with the field file.
+3.  The backend (video_upload.py) saves the clip temporarily, runs the studyspot-agent detector on it, then deletes the temporary file.
+4.  The reply contains per-table samples in tables and room samples in room. The detector samples the clip every 10 seconds.
+5.  The page plays the video on the left, with the room layout below showing each table's status at that moment. A slider and a timeline table jump to any analysed moment.
+The bundled detector reports people_seated for the room. It cannot measure whole-frame people or unique visitors, so those come back as null. Errors such as a wrong file type, a file that is too big, a missing detector or a timeout are shown in plain words.
+The detector is found next to backend/ in studyspot-agent/. If it lives elsewhere, TOPA_DETECTOR_SCRIPT points to its main.py, and TOPA_DETECTOR_PYTHON can point to a separate Python environment for it.
+6. Running the System
+On Windows, double-click Start-Backend.cmd in the repository root. The first run creates a private Python environment and installs the dependencies. Keep the window open while the detector runs, and open the printed /docs address to check that the API is up.
+Manually (Python 3.10 or later), from the repository root:
+python -m pip install -r backend/requirements.txt
+python -m uvicorn backend.app:app --port 8000
+The server must run with one worker, because it keeps the current observations in memory.
+For the phone demo, run .\Start-Backend.cmd --lan in PowerShell, or add --host 0.0.0.0 when starting manually. Phones on the same Wi-Fi then open the laptop's network address, usually through a QR code. If port 8000 is busy, set $env:TOPA_PORT = '8001' first and use that port in both the detector URL and the QR code. On a shared network, set TOPA_WRITE_TOKEN so only the team's detector can send updates.
+The one-laptop setup used for the demo: the backend, the detector and the video all run on one laptop. The detector posts to http://127.0.0.1:8000/update, and phones open the dashboard over Wi-Fi. No video ever leaves the laptop.
+Testing the dashboard without the backend: opening index.html or admin.html directly runs both pages with made-up data. For a fuller test, python3 tools/mock_backend.py serves fake live data and a fake /upload at http://localhost:8000. It must be stopped before starting the real backend, since both use port 8000.
+7. Testing and Results
+The team tests the whole chain on the demo laptop with this rehearsal:
+1.  Start the backend on port 8000, bound to 0.0.0.0 for phone access, and run the detector on the same laptop.
+2.  Agree on 3 or 4 table IDs and capacities across the detector and dashboard, and confirm that every monitored table gets a record on each detection cycle, including empty tables.
+3.  Open /api/status on the laptop and the dashboard on a phone, and check that the same table ID updates on both screens.
+4.  Replay the video at normal speed. Pick a section where someone leaves an item and later collects it, and check that the table goes from semi-occupied to items only to empty. Each state needs at least two matching observations at least 2 seconds apart. If the clip has no such section, check the four states on separate segments.
+5.  Stop the detector and check that the table turns to "No data" after 12 seconds. Restart it and confirm that updates return.
+For each check, the team records the clip timestamp, table ID, expected state and the state the API actually reported. Tests using mock counts are labelled separately from detector tests on the team's video, so the results show the detector's real accuracy.
+Clip time
+Table ID
+Expected status
+API status
+Correct?
+[mm:ss]
+[16]
+[partly]
+[ ]
+[ ]
+[mm:ss]
+[16]
+[items]
+[ ]
+[ ]
+[mm:ss]
+[16]
+[free]
+[ ]
+[ ]
+[mm:ss]
+[17]
+[full]
+[ ]
+[ ]
+Summary of results: [Fill in after testing, for example: "Across [N] checks on [M] minutes of video, the API reported the expected status in [X] cases ([Y]%). Misses were mostly [cause]."]
+8. Privacy, Limitations and Future Work
+Privacy. The live API receives only counts, never video frames, and the dashboard only receives statuses. There is no face recognition; the system knows that someone is at a desk, not who. Uploaded clips are deleted as soon as the analysis finishes, and the backend keeps no history after a restart.
+Limitations.
+• The bundled pixel-difference detector is tuned to one fixed camera view. Moving the camera or changing the lighting can affect its readings.
+• It currently watches six wall desks (D1 to D6), not the whole room, and it cannot count whole-frame people or unique visitors.
+• Video uploads are sampled every 10 seconds, so short events between samples can be missed.
+• State is kept in memory with a single worker. This is simple and reliable for a demo, but the data is lost on restart.
+Future work.
+• Replace or extend the detector with an object-detection model, such as YOLO or a Roboflow model, to count people and belongings at all 23 tables. The backend and dashboard need no changes, because the message format stays the same.
+• Store history in a database to show busy-hour patterns and predictions.
+• Send notifications when a table becomes free.
+• Add more study areas across campus, each with its own camera and layout.
