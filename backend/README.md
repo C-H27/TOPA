@@ -88,3 +88,35 @@ For the results section, record the clip timestamps, table IDs, expected
 states, actual API states, and any misses. Label mock-count tests separately
 from detection tests on the team's synthetic video. The API receives counts
 and serves the floor plan. It does not receive video frames.
+
+## Upload a demo clip and report room people counts
+
+Place the detector branch's `studyspot-agent/` directory next to `backend/`.
+Install its requirements into the backend Python environment, or set
+`TOPA_DETECTOR_PYTHON` to the detector's Python executable. Set
+`TOPA_DETECTOR_SCRIPT` if its `main.py` lives outside the repository.
+
+`POST /upload` takes multipart form data with the field `file` and returns
+per-table samples in `tables` and room samples in `room`. Use an MP4 from the
+configured fixed-camera demo scene, up to 100 MiB.
+
+```sh
+curl -F "file=@learning_center_2.mp4" http://localhost:8000/upload
+```
+
+The bundled detector estimates seated occupancy from pixel differences.
+Its room samples use `people_seated`. Whole-frame people and unique
+visitors are returned as null because this detector cannot measure them.
+Upload analysis is separate from live status and removes the temporary file
+after processing.
+
+For live room metrics, send `POST /update/room` with
+`{"people_in_frame":8,"people_so_far":27}`. Send a field as null when the
+detector cannot measure it. The producer supplies its own daily deduplicated
+count. The backend does not add frame counts to estimate daily visitors.
+The last room update expires after 30 seconds. Both write paths use the
+same optional authorization token as the other update routes.
+
+`GET /status?include_room=true` returns
+`{"tables":[...],"people_in_frame":8,"people_so_far":27}`.
+Plain `GET /status` still returns the dashboard's table array.
