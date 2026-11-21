@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin · Smart Table Finder</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Smart Table Finder · Admin</h1>
+    <p>Upload a camera video and check the table results · Learning Center, 1st Floor</p>
+  </div>
+  <nav>
+    <a href="index.html">Live</a>
+    <a href="admin.html" class="active">Admin</a>
+    <a href="photo.html">Detection</a>
+  </nav>
+</header>
+
+<main>
+  <!-- ===== Upload ===== -->
+  <div class="panel">
+    <h2>Upload a video</h2>
+    <p class="hint">MP4 from the Learning Center camera, up to 100 MB. The server runs table detection on it and returns each table's status over time.</p>
+    <div class="upload-row">
+      <input id="file" type="file" accept="video/mp4,.mp4" hidden>
+      <button class="btn secondary" id="choose">Choose video</button>
+      <span class="file-name" id="file-name">No file chosen</span>
+      <button class="btn" id="analyse" disabled>Analyse video</button>
+      <label class="token">Write token (only if the server uses one)
+        <input id="token" type="password" autocomplete="off">
+      </label>
+    </div>
+    <div class="message" id="message"></div>
+  </div>
+
+  <!-- ===== Results ===== -->
+  <div id="results" hidden>
+    <div class="panel">
+      <h2>Results</h2>
+      <p class="hint">Play the video or move the slider: the tables below show what the detector found at that moment.</p>
+      <div class="replay">
+        <div>
+          <video id="video" controls muted playsinline></video>
+        </div>
+        <div>
+          <div class="time-row">
+            <span>Time</span>
+            <input type="range" id="slider" min="0" max="0" step="1" value="0">
+            <b id="time-label">0:00</b>
+          </div>
+          <div class="timeline-wrap" style="margin-top:12px">
+            <table class="timeline">
+              <thead><tr><th>Video time</th><th>People</th><th>Empty</th><th>Semi</th><th>Occupied</th><th>Items</th></tr></thead>
+              <tbody id="timeline"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="summary">
+      <div class="c-free"><b id="sum-free">–</b>Empty tables</div>
+      <div class="c-partly"><b id="sum-partly">–</b>Semi-occupied</div>
+      <div class="c-full"><b id="sum-full">–</b>Occupied</div>
+      <div class="c-items"><b id="sum-items">–</b>Items only</div>
+      <div class="c-people"><b id="sum-people-now">–</b>People at tables</div>
+      <div class="c-people"><b id="sum-people-today">–</b>People so far</div>
+    </div>
+    <div class="legend">
+      <span><i class="dot free"></i>Empty</span>
+      <span><i class="dot partly"></i>Semi-occupied</span>
+      <span><i class="dot full"></i>Occupied</span>
+      <span><i class="dot items"></i>Items only (nobody there)</span>
+      <span><i class="dot unknown"></i>No data</span>
+    </div>
+    <div class="status-bar" id="snapshot-label">–</div>
+    <div id="room"></div>
+  </div>
+</main>
+
+<script src="layout.js"></script>
+<script>
+  const UPLOAD_URL = "/upload";
+  // Opened by double-click (no server), or with ?fake=1: show made-up results.
+  const DEMO_MODE = location.protocol === "file:" ||
+                    new URLSearchParams(location.search).has("fake");
+
+  const fileInput = document.getElementById("file");
+  const analyseBtn = document.getElementById("analyse");
+  const message = document.getElementById("message");
+  const video = document.getElementById("video");
+  const slider = document.getElementById("slider");
+  const room = document.getElementById("room");
+  TOPA.buildFloor(room);
+
+  let snapshots = [];      // [{time, tables: [...], room: {...}}] sorted by time
+  let peopleSoFar = null;
+  let current = -1;
+
+  // ===== Messages =====
+  function showMessage(kind, text, busy) {
+    message.className = "message " + kind;
+    message.innerHTML = "";
+    if (busy) { const s = document.createElement("span"); s.className = "spinner"; message.appendChild(s); }
+    message.appendChild(document.createTextNode(text));
+  }
+
+  function fmt(sec) {
+    const s = Math.round(sec);
+    return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+  }
+
+  // ===== Choose file =====
+  document.getElementById("choose").onclick = () => fileInput.click();
+  fileInput.onchange = () => {
+    const f = fileInput.files[0];
+    document.getElementById("file-name").textContent = f ? f.name + " (" + (f.size / 1048576).toFixed(1) + " MB)" : "No file chosen";
+    analyseBtn.disabled = !f;
+    message.className = "message";
+  };
+
+  // ===== Upload and analyse =====
+  analyseBtn.onclick = async () => {
+    const f = fileInput.files[0];
+    if (!f) return;
+    if (!f.name.toLowerCase().endsWith(".mp4")) return showMessage("error", "Please choose an MP4 video.");
+    if (f.size > 100 * 1024 * 1024) return showMessage("error", "The video is larger than 100 MB. Use a shorter clip.");
+
+    analyseBtn.disabled = true;
+    showMessage("info", "Uploading and analysing the video. This can take up to 40 seconds…", true);
+    try {
+      let data;
+      if (DEMO_MODE) {
+        await new Promise(r => setTimeout(r, 1200));
+        data = await fakeResult(f);
+      } else {
+        const form = new FormData();
+        form.append("file", f);
+        const headers = {};
+        const token = document.getElementById("token").value.trim();
+        if (token) headers["Authorization"] = "Bearer " + token;
+        const res = await fetch(UPLOAD_URL, { method: "POST", body: form, headers });
+        if (!res.ok) throw new Error(await errorText(res));
+        data = await res.json();
+      }
+      showResults(f, data);
+      showMessage("ok", "Done: " + snapshots.length + " moments analysed" +
+                  (DEMO_MODE ? " (demo data, no server connected)." : "."));
+    } catch (err) {
+      showMessage("error", err.message || "Upload failed.");
+    } finally {
+      analyseBtn.disabled = false;
+    }
+  };
+
+  async function errorText(res) {
+    let detail = "";
+    try { const j = await res.json(); detail = typeof j.detail === "string" ? j.detail : ""; } catch (e) {}
+    const known = {
+      401: "The server needs the write token. Enter it and try again.",
+      404: "The server has no video upload. Run the backend from the integrated demo branch.",
+      413: "The video is larger than 100 MB. Use a shorter clip.",
+      415: "Upload an MP4 from the calibrated demo camera.",
+      422: "The detector could not analyse this video.",
+      503: "The detector is not available on the server.",
+      504: "Analysis took too long. Try a shorter clip."
+    };
+    return detail || known[res.status] || "Upload failed (error " + res.status + ").";
+  }
+
+  // ===== Build snapshots from the server response =====
+  // Response: {tables: [{video_seconds, table_id, seats, people, items, status}],
+  //            room: [{video_seconds, people_seated, free, partly, full, items}],
+  //            people_so_far: number|null}
+  function showResults(file, data) {
+    const byTime = new Map();
+    (data.tables || []).forEach(r => {
+      const t = Number(r.video_seconds) || 0;
+      if (!byTime.has(t)) byTime.set(t, []);
+      byTime.get(t).push(r);
+    });
+    const roomByTime = new Map((data.room || []).map(r => [Number(r.video_seconds) || 0, r]));
+    snapshots = [...byTime.keys()].sort((a, b) => a - b)
+      .map(t => ({ time: t, tables: byTime.get(t), room: roomByTime.get(t) }));
+    peopleSoFar = typeof data.people_so_far === "number" ? data.people_so_far : null;
+
+    if (!snapshots.length) throw new Error("The server returned no table results for this video.");
+
+    // Timeline table
+    const body = document.getElementById("timeline");
+    body.innerHTML = "";
+    snapshots.forEach((s, i) => {
+      const c = { free: 0, partly: 0, full: 0, items: 0, people: 0 };
+      s.tables.forEach(r => { if (c[r.status] !== undefined) c[r.status]++; c.people += Number(r.people) || 0; });
+      const tr = document.createElement("tr");
+      tr.dataset.index = i;
+      [fmt(s.time), c.people, c.free, c.partly, c.full, c.items].forEach(v => {
+        const td = document.createElement("td"); td.textContent = v; tr.appendChild(td);
+      });
+      tr.style.cursor = "pointer";
+      tr.onclick = () => { video.currentTime = s.time; show(i); };
+      body.appendChild(tr);
+    });
+
+    slider.max = snapshots.length - 1;
+    slider.value = 0;
+    if (video.src) URL.revokeObjectURL(video.src);
+    video.src = URL.createObjectURL(file);
+    document.getElementById("results").hidden = false;
+    current = -1;
+    show(0);
+  }
+
+  // ===== Show one moment =====
+  function show(i) {
+    if (i === current || !snapshots[i]) return;
+    current = i;
+    const s = snapshots[i];
+    const rows = s.tables.map(r => ({
+      table_id: Number(r.table_id), seats: Number(r.seats), people: Number(r.people), status: r.status
+    }));
+    TOPA.renderSummary(TOPA.renderTables(room, rows), peopleSoFar);
+    slider.value = i;
+    document.getElementById("time-label").textContent = fmt(s.time);
+    document.getElementById("snapshot-label").textContent =
+      "Showing the video at " + fmt(s.time) + " (moment " + (i + 1) + " of " + snapshots.length + ")";
+    document.querySelectorAll("#timeline tr").forEach(tr =>
+      tr.classList.toggle("current", Number(tr.dataset.index) === i));
+  }
+
+  // Video playing → show the latest moment at or before the current time
+  video.addEventListener("timeupdate", () => {
+    let idx = 0;
+    for (let i = 0; i < snapshots.length; i++) if (snapshots[i].time <= video.currentTime + 0.01) idx = i;
+    show(idx);
+  });
+  slider.addEventListener("input", () => {
+    const i = Number(slider.value);
+    video.currentTime = snapshots[i].time;
+    show(i);
+  });
+
+  // ===== Demo results (only when no server is connected) =====
+  async function fakeResult(file) {
+    const duration = await new Promise(resolve => {
+      const v = document.createElement("video");
+      v.preload = "metadata";
+      v.onloadedmetadata = () => resolve(v.duration || 60);
+      v.onerror = () => resolve(60);
+      v.src = URL.createObjectURL(file);
+    });
+    const ids = [...TOPA.GROUP_ROOMS, ...TOPA.STUDY_TABLES, ...TOPA.WALL_DESKS.slice(0, 6)];
+    const tables = [];
+    for (let t = 0; t < duration; t += 10) {
+      ids.forEach(x => {
+        const people = Math.floor(Math.random() * (x.seats + 1));
+        const items = people ? 1 : Math.round(Math.random());
+        const status = people >= x.seats ? "full" : people ? "partly" : items ? "items" : "free";
+        tables.push({ video_seconds: t, table_id: x.id, seats: x.seats, people, items, status });
+      });
+    }
+    return { tables, room: [], people_in_frame: null, people_so_far: null };
+  }
+</script>
+
+</body>
+</html>
