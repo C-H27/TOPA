@@ -17,13 +17,14 @@
 <main>
   <a href="/">← Live dashboard</a>
   <h1>Table detection</h1>
-  <p>Choose a room photo or video. Starting detection sends the photo or sampled frames to Roboflow Cloud.</p>
+  <p>Roboflow detects tables in your photo. Claude analyzes the detection results. For videos, sampled frames are sent to Roboflow while playback runs.</p>
   <section>
     <label>Photo or video <input id="file" type="file" accept="image/jpeg,image/png,video/mp4"></label>
     <button id="run" disabled>Start detection</button>
     <button id="stop" hidden>Stop sampling</button>
     <label id="auth" hidden>Backend write token <input type="password" id="token" autocomplete="off"></label>
     <p id="message" role="status">Choose a file to begin.</p>
+    <p id="analysis" hidden style="white-space:pre-wrap"></p>
     <video id="video" hidden muted playsinline controls loop></video>
     <canvas id="result" hidden aria-label="Selected frame with detected table locations"></canvas>
   </section>
@@ -44,6 +45,7 @@ file.onchange = async () => {
   stop();
   const version = generation;
   source = null;
+  el("analysis").hidden = true;
   run.disabled = true;
   video.hidden = result.hidden = true;
   if (objectURL) URL.revokeObjectURL(objectURL);
@@ -73,6 +75,7 @@ run.onclick = async () => {
   const version = generation;
   run.disabled = true;
   result.hidden = true;
+  el("analysis").hidden = true;
   const movie = source === video;
   el("stop").hidden = !movie;
   async function sample() {
@@ -86,7 +89,8 @@ run.onclick = async () => {
     if (version !== generation) return;
     data.append("file", blob, "frame.jpg");
     const headers = el("token").value ? {Authorization: "Bearer " + el("token").value} : {};
-    const response = await fetch("/detect/photo", {method: "POST", body: data, headers});
+    const endpoint = movie ? "/detect/photo" : "/detect/photo?analyze=true";
+    const response = await fetch(endpoint, {method: "POST", body: data, headers});
     const body = await response.json();
     if (version !== generation) return;
     if (response.status === 401) el("auth").hidden = false;
@@ -110,6 +114,10 @@ run.onclick = async () => {
     }
     result.hidden = false;
     el("message").textContent = body.predictions.length + " table boxes detected.";
+    if (!movie) {
+      el("analysis").textContent = body.analysis ? "Claude analysis\n" + body.analysis : body.analysis_error;
+      el("analysis").hidden = false;
+    }
     if (movie) timer = setTimeout(next, Math.max(0, 1000 - (performance.now() - started)));
     else run.disabled = false;
   }
