@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Table Finder</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    background: #f4f5f7;
+    color: #222;
+  }
+  header {
+    background: #1f2a44;
+    color: #fff;
+    padding: 16px 20px;
+  }
+  header h1 { margin: 0; font-size: 22px; }
+  header p { margin: 4px 0 0; font-size: 14px; opacity: 0.8; }
+
+  main { max-width: 900px; margin: 0 auto; padding: 16px; }
+
+  .summary {
+    display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px;
+  }
+  .summary div {
+    background: #fff; border-radius: 10px; padding: 10px 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08); font-size: 14px;
+  }
+  .summary b { font-size: 20px; display: block; }
+
+  /* Floor plan: tables are placed with x/y percentages */
+  .floor {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #fff;
+    border: 3px solid #c9ccd3;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .floor .label-door {
+    position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; color: #888;
+  }
+  .table {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    width: 22%;
+    height: 26%;
+    border-radius: 12px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    color: #fff; font-weight: 600;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    transition: background-color 0.4s;
+    text-align: center;
+    padding: 4px;
+  }
+  .table .name { font-size: clamp(12px, 2.2vw, 18px); }
+  .table .count { font-size: clamp(11px, 1.8vw, 15px); font-weight: 400; }
+  .table .state { font-size: clamp(10px, 1.5vw, 13px); font-weight: 400; opacity: 0.95; }
+
+  .free   { background: #2e9d4f; }
+  .partly { background: #e0a800; }
+  .full   { background: #d64045; }
+  .items  { background: #8a8f98; }
+  .unknown{ background: #c9ccd3; color: #333; }
+
+  .legend {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    margin: 14px 0 6px; font-size: 14px;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+
+  .status-bar { font-size: 13px; color: #555; }
+  .qr-box {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    background: #fff; border-radius: 12px; padding: 14px;
+    margin-top: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .qr-box img { width: 140px; height: 140px; image-rendering: pixelated; }
+  .qr-box .qr-text { font-size: 14px; }
+  .qr-box .qr-url { font-family: monospace; font-size: 15px; word-break: break-all; }
+  .offline {
+    display: none;
+    background: #fde2e2; color: #8a1c1c;
+    padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Smart Table Finder</h1>
+  <p>Live study table availability · Library, Ground Floor</p>
+</header>
+
+<main>
+  <div class="offline" id="offline">Can't reach the server. Showing last known data.</div>
+
+  <div class="summary">
+    <div><b id="sum-free">0</b>Free tables</div>
+    <div><b id="sum-seats">0</b>Free seats</div>
+    <div><b id="sum-total">0</b>Tables total</div>
+  </div>
+
+  <div class="floor" id="floor">
+    <div class="label-door">▲ Entrance</div>
+  </div>
+
+  <div class="legend">
+    <span><i class="dot free"></i>Free</span>
+    <span><i class="dot partly"></i>Partly taken</span>
+    <span><i class="dot full"></i>Full</span>
+    <span><i class="dot items"></i>Items only</span>
+  </div>
+
+  <div class="status-bar" id="updated">Last updated: –</div>
+
+  <div class="qr-box">
+    <div id="qr"></div>
+    <div class="qr-text">
+      <b>Scan to check tables on your phone</b><br>
+      <span class="qr-url" id="qr-url"></span>
+    </div>
+  </div>
+</main>
+
+<script src="qrcode.js"></script>
+
+<script>
+  // ===== SETTINGS =====
+  // Fake data is used automatically when the file is opened by double-click,
+  // or when the address ends with ?fake=1. Otherwise it reads the backend.
+  const USE_FAKE_DATA = location.protocol === "file:" ||
+                        new URLSearchParams(location.search).has("fake");
+  const STATUS_URL = "/status";      // backend endpoint (Person 3)
+
+  // Address the QR code points to. Leave empty to use the address the page
+  // is opened with. Set it (e.g. "http://172.20.10.3:8000") if you open the
+  // page as localhost on the laptop but want phones to use the laptop's IP.
+  const PUBLIC_URL = "";
+  const REFRESH_MS = 2000;           // refresh every 2 seconds
+
+  // Where each table sits on the floor plan (x, y in % of the floor).
+  // Change these to match the room in the test video.
+  const TABLE_LAYOUT = {
+    1: { x: 20, y: 28 },
+    2: { x: 50, y: 28 },
+    3: { x: 80, y: 28 },
+    4: { x: 35, y: 70 },
+    5: { x: 65, y: 70 }
+  };
+
+  const STATUS_TEXT = {
+    free: "Free",
+    partly: "Partly taken",
+    full: "Full",
+    items: "Items only"
+  };
+
+  // ===== FAKE DATA (for testing before the backend exists) =====
+  const fakeTables = [
+    { table_id: 1, seats: 4, people: 0, items: 0 },
+    { table_id: 2, seats: 4, people: 2, items: 1 },
+    { table_id: 3, seats: 2, people: 2, items: 2 },
+    { table_id: 4, seats: 4, people: 0, items: 2 },
+    { table_id: 5, seats: 6, people: 3, items: 1 }
+  ];
+
+  function statusFromCounts(t) {
+    if (t.people === 0 && t.items === 0) return "free";
+    if (t.people === 0 && t.items > 0) return "items";
+    if (t.people >= t.seats) return "full";
+    return "partly";
+  }
+
+  function makeFakeStatus() {
+    // Randomly change one table each refresh so you can see updates
+    const t = fakeTables[Math.floor(Math.random() * fakeTables.length)];
+    t.people = Math.floor(Math.random() * (t.seats + 1));
+    t.items = Math.floor(Math.random() * 3);
+    return fakeTables.map(t => ({
+      table_id: t.table_id,
+      seats: t.seats,
+      people: t.people,
+      status: statusFromCounts(t)
+    }));
+  }
+
+  // ===== DRAWING =====
+  function render(tables) {
+    const floor = document.getElementById("floor");
+    let freeTables = 0, freeSeats = 0;
+
+    // Tables the server no longer reports (e.g. detector stopped): show "No data"
+    const seen = new Set(tables.map(t => "table-" + t.table_id));
+    floor.querySelectorAll(".table").forEach(box => {
+      if (!seen.has(box.id)) {
+        box.className = "table unknown";
+        box.querySelector(".count").textContent = "";
+        box.querySelector(".state").textContent = "No data";
+      }
+    });
+
+    tables.forEach(t => {
+      const pos = TABLE_LAYOUT[t.table_id] || { x: 50, y: 50 };
+      let box = document.getElementById("table-" + t.table_id);
+
+      if (!box) {
+        box = document.createElement("div");
+        box.id = "table-" + t.table_id;
+        box.innerHTML = '<div class="name"></div><div class="count"></div><div class="state"></div>';
+        floor.appendChild(box);
+      }
+
+      const status = STATUS_TEXT[t.status] ? t.status : "unknown";
+      box.className = "table " + status;
+      box.style.left = pos.x + "%";
+      box.style.top = pos.y + "%";
+      box.querySelector(".name").textContent = "Table " + t.table_id;
+      box.querySelector(".count").textContent = t.people + " / " + t.seats + " seats";
+      box.querySelector(".state").textContent = STATUS_TEXT[t.status] || "Unknown";
+
+      if (t.status === "free") freeTables++;
+      if (t.status === "free" || t.status === "partly") {
+        freeSeats += Math.max(t.seats - t.people, 0);
+      }
+    });
+
+    document.getElementById("sum-free").textContent = freeTables;
+    document.getElementById("sum-seats").textContent = freeSeats;
+    document.getElementById("sum-total").textContent = tables.length;
+    document.getElementById("updated").textContent =
+      "Last updated: " + new Date().toLocaleTimeString();
+  }
+
+  // ===== GET DATA =====
+  async function update() {
+    const offline = document.getElementById("offline");
+    try {
+      let tables;
+      if (USE_FAKE_DATA) {
+        tables = makeFakeStatus();
+      } else {
+        const res = await fetch(STATUS_URL, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        tables = await res.json();
+      }
+      offline.style.display = "none";
+      render(tables);
+    } catch (err) {
+      console.log("Update failed:", err);
+      offline.style.display = "block";
+    }
+  }
+
+  // ===== QR CODE =====
+  function drawQR() {
+    const isLocal = location.protocol === "file:" ||
+                    ["localhost", "127.0.0.1"].includes(location.hostname);
+    const url = PUBLIC_URL || (isLocal ? "" : location.origin + "/");
+    const urlEl = document.getElementById("qr-url");
+
+    if (!url) {
+      urlEl.textContent = "Open this page as http://YOUR-IP:8000 (or set PUBLIC_URL) to show the QR code.";
+      return;
+    }
+    urlEl.textContent = url;
+    if (typeof qrcode !== "function") return;   // QR library missing: show the address only
+    const qr = qrcode(0, "M");
+    qr.addData(url);
+    qr.make();
+    document.getElementById("qr").innerHTML = qr.createImgTag(5, 8);
+  }
+
+  drawQR();
+  update();
+  setInterval(update, REFRESH_MS);
+</script>
+
+</body>
+</html>
