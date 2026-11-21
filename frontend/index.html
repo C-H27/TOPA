@@ -94,6 +94,10 @@
         const res = await fetch(STATUS_URL, { cache: "no-store" });
         if (!res.ok) throw new Error("HTTP " + res.status);
         data = await res.json();
+        if (!(Array.isArray(data) ? data : data.tables || []).length) {
+          const replay = await fetch("/demo/replay", {cache:"no-store"});
+          if (replay.ok) {const sample = await replay.json(); if (sample.active) data = sample;}
+        }
       }
       // The backend returns either a list of tables, or {tables, people_so_far, ...}
       const rows = Array.isArray(data) ? data : (data.tables || []);
@@ -101,7 +105,7 @@
       offline.style.display = "none";
       TOPA.renderSummary(TOPA.renderTables(room, rows), soFar);
       document.getElementById("updated").textContent =
-        "Last updated: " + new Date().toLocaleTimeString("en-GB");
+        (data.active ? "Video replay · " + data.video_seconds + "s · " : "") + "Last updated: " + new Date().toLocaleTimeString("en-GB");
     } catch (err) {
       console.log("Update failed:", err);
       offline.style.display = "block";

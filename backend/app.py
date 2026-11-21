@@ -84,6 +84,8 @@ def authorize_update(credentials: HTTPAuthorizationCredentials | None = Depends(
 
 app.include_router(upload_router, dependencies=[Depends(authorize_update)])
 app.include_router(photo_router)
+from .demo_replay import router as replay_router
+app.include_router(replay_router)
 
 
 @app.post("/update/room", response_model=RoomCounts, dependencies=[Depends(authorize_update)])

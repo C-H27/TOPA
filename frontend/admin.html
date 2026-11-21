@@ -24,15 +24,13 @@
   <!-- ===== Upload ===== -->
   <div class="panel">
     <h2>Upload a video</h2>
-    <p class="hint">MP4 from the Learning Center camera, up to 100 MB. The server runs table detection on it and returns each table's status over time.</p>
+    <p class="hint">Choose an MP4 from the calibrated Learning Center camera with an empty first frame (up to 100 MB). Your browser estimates seat occupancy every 10 seconds.</p>
     <div class="upload-row">
       <input id="file" type="file" accept="video/mp4,.mp4" hidden>
       <button class="btn secondary" id="choose">Choose video</button>
       <span class="file-name" id="file-name">No file chosen</span>
       <button class="btn" id="analyse" disabled>Analyse video</button>
-      <label class="token">Write token (only if the server uses one)
-        <input id="token" type="password" autocomplete="off">
-      </label>
+
     </div>
     <div class="message" id="message"></div>
   </div>
@@ -84,7 +82,7 @@
 
 <script src="layout.js"></script>
 <script>
-  const UPLOAD_URL = "/upload";
+
   // Opened by double-click (no server), or with ?fake=1: show made-up results.
   const DEMO_MODE = location.protocol === "file:" ||
                     new URLSearchParams(location.search).has("fake");
@@ -131,47 +129,101 @@
     if (f.size > 100 * 1024 * 1024) return showMessage("error", "The video is larger than 100 MB. Use a shorter clip.");
 
     analyseBtn.disabled = true;
-    showMessage("info", "Uploading and analysing the video. This can take up to 40 seconds…", true);
+    document.getElementById("choose").disabled = true;
+    showMessage("info", "Analysing video frames…", true);
     try {
       let data;
       if (DEMO_MODE) {
         await new Promise(r => setTimeout(r, 1200));
         data = await fakeResult(f);
       } else {
-        const form = new FormData();
-        form.append("file", f);
-        const headers = {};
-        const token = document.getElementById("token").value.trim();
-        if (token) headers["Authorization"] = "Bearer " + token;
-        const res = await fetch(UPLOAD_URL, { method: "POST", body: form, headers });
-        if (!res.ok) throw new Error(await errorText(res));
-        data = await res.json();
+        data = await analyseCameraVideo(f);
       }
       showResults(f, data);
+      if (!DEMO_MODE) {
+        const published = await fetch("/demo/replay", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({tables:data.tables, duration:data.duration})});
+        if (!published.ok) throw Error("Analysis finished, but Live could not start the replay (" + published.status + ").");
+        video.loop = true; video.muted = true; video.play().catch(() => {});
+      }
       showMessage("ok", "Done: " + snapshots.length + " moments analysed" +
-                  (DEMO_MODE ? " (demo data, no server connected)." : "."));
+                  (DEMO_MODE ? " (demo data, no server connected)." : ". The Live dashboard is replaying this video."));
     } catch (err) {
       showMessage("error", err.message || "Upload failed.");
     } finally {
+      document.getElementById("choose").disabled = false;
       analyseBtn.disabled = false;
     }
   };
 
-  async function errorText(res) {
-    let detail = "";
-    try { const j = await res.json(); detail = typeof j.detail === "string" ? j.detail : ""; } catch (e) {}
-    const known = {
-      401: "The server needs the write token. Enter it and try again.",
-      404: "The server has no video upload. Run the backend from the integrated demo branch.",
-      413: "The video is larger than 100 MB. Use a shorter clip.",
-      415: "Upload an MP4 from the calibrated demo camera.",
-      422: "The detector could not analyse this video.",
-      503: "The detector is not available on the server.",
-      504: "Analysis took too long. Try a shorter clip."
-    };
-    return detail || known[res.status] || "Upload failed (error " + res.status + ").";
+  async function calibratedTables(video) {
+  const response = await fetch("/demo-layout.json");
+  if (!response.ok) throw Error("Could not load the demo table layout.");
+  const layout = await response.json();
+  const canvas = document.createElement("canvas");
+  canvas.width = 960;
+  canvas.height = 540;
+  const ctx = canvas.getContext("2d", {willReadFrequently:true});
+  function pixels(frame) {
+    ctx.drawImage(frame, 0, 0, 960, 540);
+    return ctx.getImageData(0, 0, 960, 540).data;
   }
+  const reference = pixels(video);
+  return frame => {
+    const current = pixels(frame);
+    function changed(x1,y1,x2,y2) {
+      let count = 0;
+      for (let y=y1; y<y2; y++) for (let x=x1; x<x2; x++) {
+        const i = 4*(960*y+x);
+        if ([0,1,2].some(c => Math.abs(current[i+c]-reference[i+c]) >= 37)) count++;
+      }
+      return count;
+    }
+    const predictions = layout.map(({seats,box},index) => {
+      const people = seats.filter(([x,y]) => changed(x-7,y-7,x+8,y+8) >= 0.19*225).length;
+      const [x1,y1,x2,y2] = box;
+      const items = changed(x1+3,y1+3,x2-3,y2-3) >= Math.max(26, .018*(x2-x1-6)*(y2-y1-6));
+      const status = people >= seats.length ? "full" : people ? "partly" : items ? "items" : "free";
+      return {table_id:index+1,seats:seats.length,people,items:Number(items),status};
+    });
+    return predictions;
+  };
+}
 
+async function analyseCameraVideo(file) {
+    const clip = document.createElement('video');
+    clip.muted = true;
+    clip.preload = 'auto';
+    const url = URL.createObjectURL(file);
+    function waitFrame(event, action) {
+      return new Promise((resolve, reject) => {
+        function finish(error) {
+          clearTimeout(timer);
+          clip.removeEventListener(event, ready);
+          clip.removeEventListener('error', failed);
+          if (error) reject(error); else resolve();
+        }
+        const ready = () => finish();
+        const failed = () => finish(new Error('Could not decode this MP4.'));
+        const timer = setTimeout(failed, 15000);
+        clip.addEventListener(event, ready);
+        clip.addEventListener('error', failed);
+        action();
+      });
+    }
+    try {
+      await waitFrame('loadeddata', () => { clip.src = url; });
+      if (!Number.isFinite(clip.duration) || clip.duration <= 0) throw Error('Could not read video duration.');
+      const detect = await calibratedTables(clip);
+      const tables = [];
+      for (let seconds = 0; seconds < clip.duration - 0.001; seconds += 10) {
+        if (seconds) await waitFrame('seeked', () => { clip.currentTime = seconds; });
+        for (const row of detect(clip)) tables.push({...row, video_seconds: seconds});
+      }
+      return {tables, people_so_far: null, duration: clip.duration};
+    } finally {
+      clip.removeAttribute('src'); clip.load(); URL.revokeObjectURL(url);
+    }
+  }
   // ===== Build snapshots from the server response =====
   // Response: {tables: [{video_seconds, table_id, seats, people, items, status}],
   //            room: [{video_seconds, people_seated, free, partly, full, items}],
