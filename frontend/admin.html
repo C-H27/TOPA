@@ -24,7 +24,10 @@
   <!-- ===== Upload ===== -->
   <div class="panel">
     <h2>Upload a video</h2>
-    <p class="hint">Choose an MP4 from the calibrated Learning Center camera with an empty first frame (up to 100 MB). Your browser estimates seat occupancy every 10 seconds.</p>
+    <p class="hint">Choose an MP4 from the calibrated Learning Center camera (up to 100 MB). Roboflow classifies tables in a frame every 10 seconds. The local demo detector needs an empty first frame.</p>
+    <label>Video detector
+      <select id="detector"><option value="roboflow">Roboflow</option><option value="local">Local demo detector</option></select>
+    </label>
     <div class="upload-row">
       <input id="file" type="file" accept="video/mp4,.mp4" hidden>
       <button class="btn secondary" id="choose">Choose video</button>
@@ -141,7 +144,7 @@
       }
       showResults(f, data);
       if (!DEMO_MODE) {
-        const published = await fetch("/demo/replay", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({tables:data.tables, duration:data.duration})});
+        const published = await fetch("/demo/replay", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({tables:data.tables, duration:data.duration,source:data.source})});
         if (!published.ok) throw Error("Analysis finished, but Live could not start the replay (" + published.status + ").");
         video.loop = true; video.muted = true; video.play().catch(() => {});
       }
@@ -189,6 +192,39 @@
   };
 }
 
+async function roboflowTables() {
+    const response = await fetch("/demo-layout.json");
+    if (!response.ok) throw Error("Could not load the camera layout.");
+    const layout = await response.json();
+    const labels = new Map([["empty", "free"], ["semi-occupied", "partly"], ["occupied", "full"],
+      ["free", "free"], ["partly", "partly"], ["full", "full"], ["items only", "items"], ["items", "items"]]);
+    return async clip => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1280;
+      canvas.height = Math.max(1, Math.round(1280 * clip.videoHeight / clip.videoWidth));
+      canvas.getContext("2d").drawImage(clip, 0, 0, canvas.width, canvas.height);
+      const form = new FormData();
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", .90));
+      form.append("file", blob, "frame.jpg");
+      const res = await fetch("/detect/photo", {method:"POST", body:form});
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw Error(detail.detail || "Roboflow frame detection failed.");
+      }
+      const frame = await res.json();
+      const matches = layout.map(() => []);
+      for (const box of frame.predictions) {
+        const x = box.x * 960 / frame.image.width, y = box.y * 540 / frame.image.height;
+        const index = layout.findIndex(({box:[l,t,r,b]}) => l <= x && x <= r && t <= y && y <= b);
+        if (index >= 0) matches[index].push(labels.get(box.label.trim().toLowerCase()) || "unknown");
+      }
+      return layout.map(({seats}, i) => ({
+        table_id:i + 1, seats:seats.length, people:null, items:null,
+        status:matches[i].length === 1 ? matches[i][0] : "unknown"
+      }));
+    };
+  }
+
 async function analyseCameraVideo(file) {
     const clip = document.createElement('video');
     clip.muted = true;
@@ -213,13 +249,15 @@ async function analyseCameraVideo(file) {
     try {
       await waitFrame('loadeddata', () => { clip.src = url; });
       if (!Number.isFinite(clip.duration) || clip.duration <= 0) throw Error('Could not read video duration.');
-      const detect = await calibratedTables(clip);
+      const cloud = document.getElementById("detector").value === "roboflow";
+      const detect = cloud ? await roboflowTables() : await calibratedTables(clip);
       const tables = [];
       for (let seconds = 0; seconds < clip.duration - 0.001; seconds += 10) {
         if (seconds) await waitFrame('seeked', () => { clip.currentTime = seconds; });
-        for (const row of detect(clip)) tables.push({...row, video_seconds: seconds});
+        if (cloud) showMessage("info", "Roboflow is analysing frame " + (seconds / 10 + 1) + " of " + Math.ceil(clip.duration / 10) + "…", true);
+        for (const row of await detect(clip)) tables.push({...row, video_seconds: seconds});
       }
-      return {tables, people_so_far: null, duration: clip.duration};
+      return {tables, source:cloud ? "roboflow" : "local", people_so_far: null, duration: clip.duration};
     } finally {
       clip.removeAttribute('src'); clip.load(); URL.revokeObjectURL(url);
     }
@@ -250,7 +288,7 @@ async function analyseCameraVideo(file) {
       s.tables.forEach(r => { if (c[r.status] !== undefined) c[r.status]++; c.people += Number(r.people) || 0; });
       const tr = document.createElement("tr");
       tr.dataset.index = i;
-      [fmt(s.time), c.people, c.free, c.partly, c.full, c.items].forEach(v => {
+      [fmt(s.time), s.tables.some(r => r.people == null) ? "–" : c.people, c.free, c.partly, c.full, c.items].forEach(v => {
         const td = document.createElement("td"); td.textContent = v; tr.appendChild(td);
       });
       tr.style.cursor = "pointer";
@@ -273,7 +311,7 @@ async function analyseCameraVideo(file) {
     current = i;
     const s = snapshots[i];
     const rows = s.tables.map(r => ({
-      table_id: Number(r.table_id), seats: Number(r.seats), people: Number(r.people), status: r.status
+      table_id: Number(r.table_id), seats: Number(r.seats), people: r.people, status: r.status
     }));
     TOPA.renderSummary(TOPA.renderTables(room, rows), peopleSoFar);
     slider.value = i;

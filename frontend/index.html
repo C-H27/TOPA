@@ -105,7 +105,7 @@
       offline.style.display = "none";
       TOPA.renderSummary(TOPA.renderTables(room, rows), soFar);
       document.getElementById("updated").textContent =
-        (data.active ? "Video replay · " + data.video_seconds + "s · " : "") + "Last updated: " + new Date().toLocaleTimeString("en-GB");
+        (data.active ? (data.source === "roboflow" ? "Roboflow replay · " : "Video replay · ") + data.video_seconds + "s · " : "") + "Last updated: " + new Date().toLocaleTimeString("en-GB");
     } catch (err) {
       console.log("Update failed:", err);
       offline.style.display = "block";

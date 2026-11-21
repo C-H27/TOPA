@@ -95,26 +95,27 @@ const TOPA = (() => {
       const r = byId[t.id];
       const status = r && STATUS_TEXT[r.status] ? r.status : "unknown";
       const seats = r && r.seats ? r.seats : t.seats;
-      const people = r && typeof r.people === "number" ? r.people : 0;
+      const people = r && typeof r.people === "number" ? r.people : null;
 
       card.className = "card " + status + (anyData && !seen.has(t.id) ? " hidden" : "");
-      card.title = t.label + ": " + STATUS_TEXT[status] + (r ? " (" + people + "/" + seats + ")" : "");
+      card.title = t.label + ": " + STATUS_TEXT[status] + (people !== null ? " (" + people + "/" + seats + ")" : "");
       card.querySelector(".count").textContent =
-        r ? people + " / " + seats + (seats === 1 ? " seat" : " seats") : "";
+        people !== null ? people + " / " + seats + (seats === 1 ? " seat" : " seats") : "";
       card.querySelector(".state").textContent = STATUS_TEXT[status];
       card.querySelector(".timer").textContent =
         status === "items" && r.items_seconds ? "⏱ " + formatTimer(r.items_seconds) : "";
 
       const seatsEl = card.querySelector(".seats");
       seatsEl.innerHTML = "";
-      for (let i = 0; i < seats; i++) {
+      for (let i = 0; i < seats && people !== null; i++) {
         const d = document.createElement("span");
         d.className = "seat" + (r && i < people ? " taken" : "");
         seatsEl.appendChild(d);
       }
 
       if (counts[status] !== undefined) counts[status]++;
-      counts.people += people;
+      if (r && people === null) counts.people = null;
+      else if (counts.people !== null) counts.people += people || 0;
     });
     return counts;
   }
@@ -126,7 +127,7 @@ const TOPA = (() => {
     set("sum-partly", counts.partly);
     set("sum-full", counts.full);
     set("sum-items", counts.items);
-    set("sum-people-now", counts.people);
+    set("sum-people-now", counts.people ?? "–");
     set("sum-people-today", typeof peopleSoFar === "number" ? peopleSoFar : "–");
   }
 
