@@ -10,6 +10,12 @@ Defaults are in the settings block at the top of `main.py`.
 
 ## Windows launcher
 
+For continuous replay, start TOPA's `Start-Backend.cmd`, then drag the tested
+`learning_center_2.mp4` onto `Run-Demo.cmd` in the project root. Press Ctrl+C
+in the detector window to stop. Each pass adds rows to the same CSV files for
+that run. The `pass_number` column identifies each replay, and `video_seconds`
+starts at zero again. The same option is available as `python main.py --loop`.
+
 Double-click TOPA's `Start-Backend.cmd` first and leave its window open.
 Then double-click `Start-Detector.cmd` in this folder. On its first run,
 it creates a Python environment and installs dependencies. The launcher

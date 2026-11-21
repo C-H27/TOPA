@@ -73,11 +73,22 @@ def publish(url, rows):
         response.read()
 
 
+def sample_times(duration, interval, loop):
+    pass_number = 1
+    while True:
+        for step in range(int(np.ceil(duration / interval))):
+            yield pass_number, step * interval
+        if not loop:
+            return
+        pass_number += 1
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--video", type=Path, default=DEFAULT_VIDEO)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--backend", help="FastAPI origin, e.g. http://127.0.0.1:8000")
+    parser.add_argument("--loop", action="store_true", help="Replay continuously in real time until stopped.")
     args = parser.parse_args()
     cap = cv2.VideoCapture(str(args.video))
     ok, first = cap.read()
@@ -97,31 +108,40 @@ def main():
     api = args.backend.rstrip("/") + "/update/batch" if args.backend else None
     successful_updates = 0
     clock_start = time.monotonic()
+    duration = frame_count / fps
     try:
         with (args.output/"tables_status.csv").open("w", encoding="utf-8", newline="") as detail, (
             args.output/"occupancy_log.csv"
         ).open("w", encoding="utf-8", newline="") as summary:
             table_fields = ("video_seconds", "table_id", "seats", "people", "items", "status")
             room_fields = ("video_seconds", "people_seated", "free", "partly", "full", "items")
+            if args.loop:
+                table_fields += ("pass_number",)
+                room_fields += ("pass_number",)
             writer = csv.DictWriter(detail, fieldnames=table_fields)
             totals_writer = csv.DictWriter(summary, fieldnames=room_fields)
             writer.writeheader()
             totals_writer.writeheader()
-            for step in range(int(np.ceil(frame_count/fps/interval))):
-                instant = step * interval
-                cap.set(cv2.CAP_PROP_POS_FRAMES, round(instant*fps))
+            for pass_number, instant in sample_times(duration, interval, args.loop):
+                if api or args.loop:
+                    scheduled = clock_start + (pass_number - 1) * duration + instant
+                    time.sleep(max(0, scheduled - time.monotonic()))
+                if args.loop and instant == 0:
+                    print(f"Starting video pass {pass_number}. Press Ctrl+C to stop.", flush=True)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, min(round(instant * fps), int(frame_count) - 1))
                 ok, frame = cap.read()
                 if not ok:
                     raise SystemExit(f"Cannot decode the frame at {instant:g}s.")
                 rows = observe(frame, reference, tables)
-                if api:
-                    time.sleep(max(0, clock_start + instant - time.monotonic()))
+                timestamp = {"video_seconds": instant}
+                if args.loop:
+                    timestamp["pass_number"] = pass_number
                 classified = [{**row, "status": status(row)} for row in rows]
-                writer.writerows({"video_seconds": instant, **row} for row in classified)
+                writer.writerows({**timestamp, **row} for row in classified)
                 totals = {name: 0 for name in ("free", "partly", "full", "items")}
                 for row in classified:
                     totals[row["status"]] += 1
-                snapshot = {"video_seconds": instant, "people_seated": sum(r["people"] for r in rows), **totals}
+                snapshot = {**timestamp, "people_seated": sum(r["people"] for r in rows), **totals}
                 if instant % SUMMARY_SECONDS == 0:
                     totals_writer.writerow(snapshot)
                     print(snapshot, flush=True)
@@ -145,4 +165,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("Detection stopped.")

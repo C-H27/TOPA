@@ -16,7 +16,7 @@ set "URL=http://127.0.0.1:%TOPA_PORT%"
 if errorlevel 1 goto need_backend
 echo Live room counts appear every 10 seconds. Table CSV updates every 2.5 seconds.
 echo Output folder: %CD%\studyspot-agent\output
-"%PYTHON%" "studyspot-agent\main.py" --video "%VIDEO%" --backend "%URL%"
+"%PYTHON%" "studyspot-agent\main.py" --video "%VIDEO%" --backend "%URL%" --loop
 if errorlevel 1 goto failed
 echo Demo complete.
 pause
