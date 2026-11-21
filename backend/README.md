@@ -50,3 +50,27 @@ A gap longer than four seconds restarts a pending change. This gives the detecto
 after a brief disconnect. On a capacity change, the status returns to unknown while the server
 confirms the new reading. The `pending_status` field is null when nothing is awaiting confirmation.
 Use `status` for the table colour.
+
+## One-laptop integration rehearsal
+
+1. Start FastAPI on the demo laptop on port 8000. Bind it to
+   `0.0.0.0` for phone access. The detector on that same laptop can
+   publish to `http://127.0.0.1:8000/update`.
+2. Agree on 3 or 4 table IDs and capacities with the detector and dashboard
+   owners. Confirm that every monitored table gets a record on each
+   detection cycle, including empty tables with both counts set to zero.
+3. Open `/status` on the demo laptop and open the dashboard on a phone
+   using the laptop's LAN address. Verify that the same table ID updates
+   on both screens. Display `status` and use `items_seconds` for the timer.
+4. Replay the video at normal playback speed. Pick a section where someone
+   leaves an item and later collects it. Verify `partly_taken` to
+   `items_only` to `free`. Each state needs at least two matching
+   observations spaced at least two seconds apart. If the clip has no such
+   section, verify the four states on separate video segments.
+5. Stop the detector. Check that the last state becomes `unknown` after
+   12 seconds, then restart it and confirm that updates return.
+
+For the results section, record the clip timestamps, table IDs, expected
+states, actual API states, and any misses. Label mock-count tests separately
+from detection tests on the team's synthetic video. The API receives counts
+and serves the floor plan. It does not receive video frames.
