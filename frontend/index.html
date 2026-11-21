@@ -4,155 +4,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Smart Table Finder · Learning Center</title>
-<style>
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-    background: #f4f5f7;
-    color: #222;
-  }
-  header { background: #1f2a44; color: #fff; padding: 16px 24px; }
-  header h1 { margin: 0; font-size: 24px; }
-  header p { margin: 4px 0 0; font-size: 15px; opacity: 0.85; }
-
-  main { max-width: 1300px; margin: 0 auto; padding: 18px; }
-
-  .offline {
-    display: none;
-    background: #fde2e2; color: #8a1c1c;
-    padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; font-size: 15px;
-  }
-
-  /* ===== Summary ===== */
-  .summary { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
-  .summary div {
-    background: #fff; border-radius: 12px; padding: 12px 14px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08); font-size: 14px;
-    border-left: 6px solid #c9ccd3;
-  }
-  .summary b { font-size: 28px; display: block; }
-  .summary .c-free   { border-left-color: #2e9d4f; }
-  .summary .c-partly { border-left-color: #e0a800; }
-  .summary .c-full   { border-left-color: #d64045; }
-  .summary .c-items  { border-left-color: #8a8f98; }
-  .summary .c-people { border-left-color: #1f2a44; }
-
-  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin: 12px 0 4px; font-size: 14px; }
-  .legend span { display: inline-flex; align-items: center; gap: 6px; }
-  .dot { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
-  .status-bar { font-size: 13px; color: #555; margin-bottom: 12px; }
-
-  /* ===== Room layout (same arrangement as the camera view) ===== */
-  .floor {
-    display: grid;
-    grid-template-columns: 34px 1fr 190px;
-    grid-template-areas:
-      "shelf rooms print"
-      "shelf study desks"
-      ".     help  .";
-    gap: 18px;
-    background: #e6e3dc;
-    border: 3px solid #c9c4b8;
-    border-radius: 14px;
-    padding: 18px;
-  }
-  .area-label {
-    font-size: 12px; font-weight: 600; color: #6b6558;
-    text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px;
-  }
-
-  .rooms { grid-area: rooms; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
-  .room {
-    border: 3px solid #a9c3d6;
-    border-radius: 10px;
-    background: rgba(255,255,255,0.35);
-    padding: 10px;
-  }
-  .print {
-    grid-area: print; border-radius: 10px; background: rgba(255,255,255,0.3);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 12px; color: #8a8475; text-transform: uppercase; letter-spacing: 0.04em;
-  }
-  .shelf {
-    grid-area: shelf; border-radius: 6px;
-    background: repeating-linear-gradient(180deg, #a5896a 0 7px, #c9b494 7px 14px);
-  }
-  .study-wrap { grid-area: study; }
-  .study { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
-  .desks-wrap { grid-area: desks; }
-  .desks { display: flex; flex-direction: column; gap: 8px; }
-  .help {
-    grid-area: help; justify-self: center; width: 40%;
-    background: #c9b494; border-radius: 8px; padding: 6px;
-    text-align: center; font-size: 12px; font-weight: 600; color: #5b513f;
-    text-transform: uppercase; letter-spacing: 0.04em;
-  }
-
-  /* ===== Table cards ===== */
-  .card {
-    border-radius: 12px;
-    padding: 14px 10px;
-    color: #fff;
-    text-align: center;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-    transition: background-color 0.4s;
-    min-height: 132px;
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
-  }
-  .card .name  { font-size: 21px; font-weight: 700; }
-  .card .count { font-size: 16px; font-weight: 600; }
-  .card .state { font-size: 15px; }
-  .card .timer { font-size: 13px; font-weight: 600; }
-  .seats { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; max-width: 140px; }
-  .seat { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.9); }
-  .seat.taken { background: rgba(255,255,255,0.95); }
-
-  /* Wall desks: compact one-line cards */
-  .desks .card {
-    min-height: 0; padding: 8px 12px;
-    flex-direction: row; justify-content: space-between; gap: 8px;
-  }
-  .desks .name { font-size: 17px; }
-  .desks .state { font-size: 14px; font-weight: 600; }
-  .desks .count, .desks .seats { display: none; }
-  .desks .timer { font-size: 12px; }
-
-  .free    { background: #2e9d4f; }
-  .partly  { background: #e0a800; color: #222; }
-  .partly .seat { border-color: rgba(34,34,34,0.75); }
-  .partly .seat.taken { background: rgba(34,34,34,0.8); }
-  .full    { background: #d64045; }
-  .items   { background: #8a8f98; }
-  .unknown { background: #d5d8de; color: #444; box-shadow: none; }
-  .unknown .seat { border-color: #9aa0ab; }
-
-  /* ===== Phones and narrow screens: stacked sections ===== */
-  @media (max-width: 900px) {
-    .summary { grid-template-columns: repeat(3, 1fr); }
-    .floor {
-      grid-template-columns: 1fr;
-      grid-template-areas: "rooms" "study" "desks";
-      padding: 12px;
-    }
-    .shelf, .print, .help { display: none; }
-    .study { grid-template-columns: repeat(2, 1fr); gap: 12px; }
-    .rooms { gap: 10px; }
-    .room { padding: 6px; }
-    .desks { display: grid; grid-template-columns: repeat(2, 1fr); }
-  }
-  @media (max-width: 560px) {
-    .summary { grid-template-columns: repeat(2, 1fr); }
-    .rooms { grid-template-columns: 1fr; }
-    .card { min-height: 112px; }
-  }
-</style>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <header>
-  <h1>Smart Table Finder</h1>
-  <p>Live study table availability · Learning Center, 1st Floor</p>
+  <div>
+    <h1>Smart Table Finder</h1>
+    <p>Live study table availability · Learning Center, 1st Floor</p>
+  </div>
+  <nav>
+    <a href="index.html" class="active">Live</a>
+    <a href="admin.html">Admin</a>
+  </nav>
 </header>
 
 <main>
@@ -176,189 +40,73 @@
   </div>
   <div class="status-bar" id="updated">Last updated: –</div>
 
-  <div class="floor">
-    <div class="shelf" title="Bookshelf"></div>
-    <div class="rooms" id="rooms"></div>
-    <div class="print">Print · Copy</div>
-    <div class="study-wrap">
-      <div class="area-label">Study tables · 6 seats each</div>
-      <div class="study" id="study"></div>
-    </div>
-    <div class="desks-wrap">
-      <div class="area-label">Wall desks</div>
-      <div class="desks" id="desks"></div>
-    </div>
-    <div class="help">Help desk</div>
-  </div>
+  <div id="room"></div>
 </main>
 
+<script src="layout.js"></script>
 <script>
-  // ===== SETTINGS =====
   // Fake data is used when the file is opened by double-click, or with ?fake=1.
   const USE_FAKE_DATA = location.protocol === "file:" ||
                         new URLSearchParams(location.search).has("fake");
-  const STATUS_URL = "/status";   // table list from the backend
-  const STATS_URL  = "/stats";    // optional: {"people_so_far": N}
+  // include_room=true also returns people_so_far when the backend supports it.
+  const STATUS_URL = "/status?include_room=true";
   const REFRESH_MS = 2000;
 
-  // ===== TABLES (id = the table_id the detector sends) =====
-  // seats is only a fallback; the backend's seat count is shown when available.
-  const GROUP_ROOMS = [
-    { id: 13, label: "Group Room 1", seats: 5 },
-    { id: 14, label: "Group Room 2", seats: 5 },
-    { id: 15, label: "Group Room 3", seats: 5 }
-  ];
-  // T1-T12: left to right, top to bottom (4 columns x 3 rows)
-  const STUDY_TABLES = Array.from({ length: 12 }, (_, i) => ({ id: i + 1, label: "T" + (i + 1), seats: 6 }));
-  // D1-D8: right wall, top to bottom
-  const WALL_DESKS = Array.from({ length: 8 }, (_, i) => ({ id: 16 + i, label: "D" + (i + 1), seats: 1 }));
-  const ALL_TABLES = [...GROUP_ROOMS, ...STUDY_TABLES, ...WALL_DESKS];
-
-  const STATUS_TEXT = {
-    free: "Empty", partly: "Semi-occupied", full: "Occupied",
-    items: "Items only", unknown: "No data"
-  };
+  const room = document.getElementById("room");
+  TOPA.buildFloor(room);
 
   // ===== FAKE DATA =====
-  const fake = ALL_TABLES.map(t => ({
+  const fakeIds = [...TOPA.GROUP_ROOMS, ...TOPA.STUDY_TABLES, ...TOPA.WALL_DESKS.slice(0, 6)];
+  const fake = fakeIds.map(t => ({
     table_id: t.id, seats: t.seats,
     people: Math.floor(Math.random() * (t.seats + 1)),
     items: Math.floor(Math.random() * 3), items_seconds: 0
   }));
   let fakeToday = 41;
-
   function fakeStatus(t) {
-    if (t.people === 0 && t.items === 0) return "free";
-    if (t.people === 0) return "items";
     if (t.people >= t.seats) return "full";
-    return "partly";
+    if (t.people > 0) return "partly";
+    return t.items ? "items" : "free";
   }
-  function makeFakeStatus() {
+  function makeFake() {
     const t = fake[Math.floor(Math.random() * fake.length)];
     const before = t.people;
     t.people = Math.floor(Math.random() * (t.seats + 1));
     t.items = Math.floor(Math.random() * 3);
     if (t.people > before) fakeToday += t.people - before;
     fake.forEach(x => { x.items_seconds = fakeStatus(x) === "items" ? x.items_seconds + 2 : 0; });
-    return fake.map(x => ({
-      table_id: x.table_id, seats: x.seats, people: x.people,
-      status: fakeStatus(x), items_seconds: x.items_seconds
-    }));
+    return {
+      people_so_far: fakeToday,
+      tables: fake.map(x => ({ table_id: x.table_id, seats: x.seats, people: x.people,
+                               status: fakeStatus(x), items_seconds: x.items_seconds }))
+    };
   }
 
-  // ===== BUILD THE ROOM ONCE =====
-  function makeCard(t) {
-    const card = document.createElement("div");
-    card.id = "table-" + t.id;
-    card.className = "card unknown";
-    card.innerHTML = '<div class="name"></div><div class="seats"></div>' +
-                     '<div class="count"></div><div class="state">No data</div><div class="timer"></div>';
-    card.querySelector(".name").textContent = t.label.replace("Group Room ", "G");
-    return card;
-  }
-
-  function buildRoom() {
-    const rooms = document.getElementById("rooms");
-    GROUP_ROOMS.forEach(t => {
-      const room = document.createElement("div");
-      room.className = "room";
-      const label = document.createElement("div");
-      label.className = "area-label";
-      label.textContent = t.label;
-      room.append(label, makeCard(t));
-      rooms.appendChild(room);
-    });
-    const study = document.getElementById("study");
-    STUDY_TABLES.forEach(t => study.appendChild(makeCard(t)));
-    const desks = document.getElementById("desks");
-    WALL_DESKS.forEach(t => desks.appendChild(makeCard(t)));
-  }
-
-  function formatTimer(sec) {
-    if (!sec) return "";
-    return sec < 60 ? sec + " s" : Math.floor(sec / 60) + " min";
-  }
-
-  // ===== UPDATE THE CARDS =====
-  function render(rows) {
-    const byId = Object.fromEntries(rows.map(r => [r.table_id, r]));
-    const counts = { free: 0, partly: 0, full: 0, items: 0 };
-    let peopleNow = 0;
-
-    ALL_TABLES.forEach(t => {
-      const r = byId[t.id];
-      const status = r && STATUS_TEXT[r.status] ? r.status : "unknown";
-      const seats = r && r.seats ? r.seats : t.seats;
-      const people = r && typeof r.people === "number" ? r.people : 0;
-      const card = document.getElementById("table-" + t.id);
-
-      card.className = "card " + status;
-      card.title = t.label + ": " + STATUS_TEXT[status] + (r ? " (" + people + "/" + seats + ")" : "");
-      card.querySelector(".count").textContent =
-        r ? people + " / " + seats + (seats === 1 ? " seat" : " seats") : "";
-      card.querySelector(".state").textContent = STATUS_TEXT[status];
-      card.querySelector(".timer").textContent =
-        status === "items" && r.items_seconds ? "⏱ " + formatTimer(r.items_seconds) : "";
-
-      // Seat dots: filled = someone sitting there
-      const seatsEl = card.querySelector(".seats");
-      seatsEl.innerHTML = "";
-      for (let i = 0; i < seats; i++) {
-        const d = document.createElement("span");
-        d.className = "seat" + (r && i < people ? " taken" : "");
-        seatsEl.appendChild(d);
-      }
-
-      if (counts[status] !== undefined) counts[status]++;
-      peopleNow += people;
-    });
-
-    document.getElementById("sum-free").textContent = counts.free;
-    document.getElementById("sum-partly").textContent = counts.partly;
-    document.getElementById("sum-full").textContent = counts.full;
-    document.getElementById("sum-items").textContent = counts.items;
-    document.getElementById("sum-people-now").textContent = peopleNow;
-    document.getElementById("updated").textContent =
-      "Last updated: " + new Date().toLocaleTimeString();
-  }
-
-  // ===== GET DATA =====
-  async function updateStats() {
-    if (USE_FAKE_DATA) {
-      document.getElementById("sum-people-today").textContent = fakeToday;
-      return;
-    }
-    try {
-      const res = await fetch(STATS_URL, { cache: "no-store" });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (typeof data.people_so_far === "number") {
-        document.getElementById("sum-people-today").textContent = data.people_so_far;
-      }
-    } catch (e) { /* keep "–" */ }
-  }
-
+  // ===== LIVE UPDATES =====
   async function update() {
     const offline = document.getElementById("offline");
     try {
-      let rows;
+      let data;
       if (USE_FAKE_DATA) {
-        rows = makeFakeStatus();
+        data = makeFake();
       } else {
         const res = await fetch(STATUS_URL, { cache: "no-store" });
         if (!res.ok) throw new Error("HTTP " + res.status);
-        rows = await res.json();
+        data = await res.json();
       }
+      // The backend returns either a list of tables, or {tables, people_so_far, ...}
+      const rows = Array.isArray(data) ? data : (data.tables || []);
+      const soFar = Array.isArray(data) ? null : data.people_so_far;
       offline.style.display = "none";
-      render(rows);
-      updateStats();
+      TOPA.renderSummary(TOPA.renderTables(room, rows), soFar);
+      document.getElementById("updated").textContent =
+        "Last updated: " + new Date().toLocaleTimeString();
     } catch (err) {
       console.log("Update failed:", err);
       offline.style.display = "block";
     }
   }
 
-  buildRoom();
   update();
   setInterval(update, REFRESH_MS);
 </script>

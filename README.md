@@ -99,14 +99,17 @@ python detector/detect.py --source sample_videos/demo.mp4
 
 ## Dashboard
 
-The dashboard (`frontend/index.html`) shows the Learning Center laid out like the camera view: the three group rooms at the top, the 12 study tables in a 4 x 3 grid, and the 8 wall desks on the right. Each table is a card coloured by status (Empty, Semi-occupied, Occupied, Items only, No data), with a dot per seat, and summary counts at the top. It refreshes every 2 seconds from `GET /status`.
+Two pages, served by the backend:
+
+- **Live** (`/`): the Learning Center laid out like the camera view, with the three group rooms at the top, the 12 study tables in a 4 x 3 grid and the wall desks on the right. Each table is a card coloured by status (Empty, Semi-occupied, Occupied, Items only, No data) with a dot per seat, plus summary counts. It refreshes every 2 seconds.
+- **Admin** (`/admin.html`): upload a camera video (MP4). The server runs the detector on it, and the page replays the video next to the room layout, showing each table's status at every analysed moment.
 
 <!-- Screenshots: add files to docs/screenshots/ and uncomment
-![Dashboard](docs/screenshots/dashboard.png)
-![Phone view](docs/screenshots/dashboard-phone.png)
+![Live dashboard](docs/screenshots/dashboard.png)
+![Admin page](docs/screenshots/admin.png)
 -->
 
-Details, table IDs and how to test it: [frontend/README.md](frontend/README.md)
+Table IDs, data format and how to test: [frontend/README.md](frontend/README.md)
 
 ## Results
 

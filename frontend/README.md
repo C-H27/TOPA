@@ -1,56 +1,50 @@
 # Dashboard (frontend)
 
-`index.html` is the live dashboard students open in the browser. It is a single file with no build step and no internet dependency.
+Two pages, no build step and no internet dependency:
 
-## What it shows
-
-- **Summary:** empty tables, semi-occupied, occupied, items only, people now, people so far today
-- **Room layout** matching the Learning Center camera view:
-  - Group Room 1–3 at the top (G1–G3)
-  - Study tables T1–T12 in a 4 x 3 grid, numbered left to right, top to bottom
-  - Wall desks D1–D8 on the right, top to bottom
-- **Each table card:** name, one dot per seat (filled = someone sitting), people / seats, status, and a timer for items-only tables
-- **Phones:** the sections stack vertically
-
-Status colours:
-
-| Status from `/status` | Shown as | Colour |
+| File | Page | For |
 | --- | --- | --- |
-| `free` | Empty | Green |
-| `partly` | Semi-occupied | Yellow |
-| `full` | Occupied | Red |
-| `items` | Items only (nobody there) | Grey |
-| table missing from `/status` | No data | Light grey |
+| `index.html` | Live dashboard at `/` | Students: which tables are free right now |
+| `admin.html` | Admin at `/admin.html` | Staff: upload a camera video and see the table results over time |
+| `layout.js` | – | The room layout and table IDs, shared by both pages |
+| `style.css` | – | Shared look for both pages |
 
-## Table IDs (the detector must send these `table_id` values)
+The two pages link to each other with the **Live** / **Admin** buttons in the header.
+
+## Room layout and table IDs
+
+The layout matches the Learning Center camera view, and the IDs match the detector (`studyspot-agent/main.py`, `layout()`):
 
 | table_id | Shown as | Area |
 | --- | --- | --- |
-| 1–12 | T1–T12 | Study tables (6 seats) |
-| 13–15 | G1–G3 | Group Room 1–3 |
-| 16–23 | D1–D8 | Wall desks (1 seat) |
+| 1–3 | G1–G3 | Group Room 1–3 (top) |
+| 4–15 | T1–T12 | Study tables, 4 x 3 grid, left to right, top to bottom |
+| 16–23 | D1–D8 | Wall desks on the right, top to bottom |
 
-The seat count shown comes from the backend, so it always matches what the detector sends.
+The detector currently watches desks 16–21. Any desk that never appears in the data is hidden automatically. Seat counts on the cards come from the data. To change IDs or the layout, edit `layout.js` only.
 
-## Data it reads
+Statuses: `free` = Empty (green), `partly` = Semi-occupied (yellow), `full` = Occupied (red), `items` = Items only (grey), table missing = No data (light grey).
 
-- `GET /status` every 2 seconds, for example
-  `[{"table_id": 1, "seats": 6, "people": 2, "status": "partly", "items_seconds": 0}]`
-- `GET /stats` (optional) `{"people_so_far": 42}` for "People so far today". Shows "–" until the backend provides it.
+## Live dashboard (`index.html`)
 
-The backend (`backend/app.py`) serves this folder at `http://localhost:8000/`. Restart the backend after adding or changing the `frontend/` folder.
+- Reads `GET /status?include_room=true` every 2 seconds. Works with either reply: a list of tables, or `{"tables": [...], "people_so_far": N}`.
+- Summary: empty, semi-occupied, occupied, items only, people now, people so far today (shows "–" until the backend sends `people_so_far`).
 
-## Testing without the backend
+## Admin page (`admin.html`)
 
-- **Quickest:** double-click `index.html`. It runs with fake data.
-- **With a test server** that sends fake data in the real `/status` format for all 23 tables:
+1. **Choose video** (MP4, up to 100 MB) and press **Analyse video**.
+2. The page sends it to `POST /upload` (backend `video_upload.py`), which runs the detector on the clip.
+3. Results: the video plays on the left; the room layout below shows each table's status at that moment. The slider and the timeline table jump to any analysed moment (the detector samples every 10 seconds).
+
+If the server uses a write token (`TOPA_WRITE_TOKEN`), enter it in the token box. Errors (wrong file type, too big, detector missing, timeout) are shown in plain words.
+
+## Testing without the real backend
+
+- **Quickest:** double-click `index.html` or `admin.html`. Both run with made-up data.
+- **Test server** (fake live data and a fake `/upload`):
 
   ```
   python3 tools/mock_backend.py
   ```
 
-  Then open `http://localhost:8000`. Stop it with Ctrl+C before starting the real backend, because both use port 8000.
-
-## Changing the layout
-
-The tables are defined near the top of the script in `index.html` (`GROUP_ROOMS`, `STUDY_TABLES`, `WALL_DESKS`). For a room with a different layout, change those lists and the IDs to match the detector's table zones.
+  Open `http://localhost:8000` and `http://localhost:8000/admin.html`. Stop it with Ctrl+C before starting the real backend, because both use port 8000.
