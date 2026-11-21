@@ -26,7 +26,8 @@ fi
 .venv-mac/bin/python -m uvicorn backend.app:app --host "$HOST" --port "$PORT" &
 BACKEND=$!
 trap 'kill $BACKEND 2>/dev/null' EXIT INT TERM
-for i in $(seq 1 20); do curl -s "http://127.0.0.1:$PORT/status" >/dev/null && break; sleep 0.5; done
+for i in $(seq 1 40); do curl -s "http://127.0.0.1:$PORT/status" >/dev/null && break; sleep 0.5; done
+if ! curl -s "http://127.0.0.1:$PORT/status" >/dev/null; then echo "Backend did not start. See the error above."; exit 1; fi
 
 echo
 echo "Dashboard: http://127.0.0.1:$PORT/"
@@ -41,7 +42,9 @@ echo
 
 if [ "$DETECT" = 1 ]; then
   if [ -f "$VIDEO" ]; then
-    .venv-mac/bin/python studyspot-agent/main.py --video "$VIDEO" --backend "http://127.0.0.1:$PORT" --loop
+    .venv-mac/bin/python studyspot-agent/main.py --video "$VIDEO" --backend "http://127.0.0.1:$PORT" --loop \
+      || echo "Detector stopped (see error above). Dashboard is still running."
+    wait $BACKEND
   else
     echo "Demo video not found: $VIDEO"
     echo "Put learning_center_2.mp4 in studyspot-agent/videos/ for live counts. Backend keeps running."
