@@ -1,5 +1,9 @@
 .env
+.env.*
+!.env.example
 .venv/
 __pycache__/
-output/
-videos/*.mp4
+output/*
+!output/.gitkeep
+videos/*
+!videos/.gitkeep

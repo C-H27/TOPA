@@ -1,4 +1,4 @@
-"""Measure occupancy in the team's fixed-camera learning_center_2.mp4 demo."""
+"""Measure occupancy in a fixed-camera learning centre demo."""
 import argparse
 import csv
 import json
@@ -9,8 +9,15 @@ from urllib.request import Request, urlopen
 
 import cv2
 import numpy as np
+from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent
+load_dotenv(ROOT / ".env")
+# Settings for the team demo
+DEFAULT_VIDEO = ROOT / "videos" / "learning_center_1st_floor_3min_1080p.mp4"
+DEFAULT_OUTPUT = ROOT / "output"
+SUMMARY_SECONDS = 10
+PUBLISH_SECONDS = 2.5
 SIZE = (960, 540)
 
 
@@ -68,8 +75,8 @@ def publish(url, rows):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--video", type=Path, default=ROOT/"videos/learning_center_2.mp4")
-    parser.add_argument("--output", type=Path, default=ROOT/"output")
+    parser.add_argument("--video", type=Path, default=DEFAULT_VIDEO)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--backend", help="FastAPI origin, e.g. http://127.0.0.1:8000")
     args = parser.parse_args()
     cap = cv2.VideoCapture(str(args.video))
@@ -86,13 +93,13 @@ def main():
 
     tables = layout()
     args.output.mkdir(parents=True, exist_ok=True)
-    interval = 2.5 if args.backend else 10
+    interval = PUBLISH_SECONDS if args.backend else SUMMARY_SECONDS
     api = args.backend.rstrip("/") + "/update/batch" if args.backend else None
     successful_updates = 0
     clock_start = time.monotonic()
     try:
-        with (args.output/"tables.csv").open("w", encoding="utf-8", newline="") as detail, (
-            args.output/"room.csv"
+        with (args.output/"tables_status.csv").open("w", encoding="utf-8", newline="") as detail, (
+            args.output/"occupancy_log.csv"
         ).open("w", encoding="utf-8", newline="") as summary:
             table_fields = ("video_seconds", "table_id", "seats", "people", "items", "status")
             room_fields = ("video_seconds", "people_seated", "free", "partly", "full", "items")
@@ -107,16 +114,24 @@ def main():
                 if not ok:
                     raise SystemExit(f"Cannot decode the frame at {instant:g}s.")
                 rows = observe(frame, reference, tables)
-                writer.writerows({"video_seconds": instant, **row, "status": status(row)} for row in rows)
-                if instant % 10 == 0:
-                    totals = {name: 0 for name in ("free", "partly", "full", "items")}
-                    for row in rows:
-                        totals[status(row)] += 1
-                    snapshot = {"video_seconds": instant, "people_seated": sum(r["people"] for r in rows), **totals}
-                    totals_writer.writerow(snapshot)
-                    print(snapshot, flush=True)
                 if api:
                     time.sleep(max(0, clock_start + instant - time.monotonic()))
+                classified = [{**row, "status": status(row)} for row in rows]
+                writer.writerows({"video_seconds": instant, **row} for row in classified)
+                totals = {name: 0 for name in ("free", "partly", "full", "items")}
+                for row in classified:
+                    totals[row["status"]] += 1
+                snapshot = {"video_seconds": instant, "people_seated": sum(r["people"] for r in rows), **totals}
+                if instant % SUMMARY_SECONDS == 0:
+                    totals_writer.writerow(snapshot)
+                    print(snapshot, flush=True)
+                detail.flush()
+                summary.flush()
+                live = {**snapshot, "people_in_frame": None, "people_so_far": None, "tables": classified}
+                temporary = args.output / "live.json.tmp"
+                temporary.write_text(json.dumps(live), encoding="utf-8")
+                temporary.replace(args.output / "live.json")
+                if api:
                     try:
                         publish(api, rows)
                         successful_updates += 1

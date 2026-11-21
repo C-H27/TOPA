@@ -55,7 +55,7 @@ goto done
 if errorlevel 1 goto failed
 
 :done
-echo Detector finished. See output\room.csv and output\tables.csv.
+echo Detector finished. See output\occupancy_log.csv and output\tables_status.csv.
 popd
 pause
 exit /b 0

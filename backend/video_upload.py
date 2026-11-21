@@ -55,8 +55,8 @@ def upload_video(file: UploadFile):
             raise HTTPException(422, "The detector could not analyse this video.")
         return {
             "method": "fixed_camera_opencv",
-            "room": csv_numbers(output / "room.csv"),
-            "tables": csv_numbers(output / "tables.csv"),
+            "room": csv_numbers(output / "occupancy_log.csv"),
+            "tables": csv_numbers(output / "tables_status.csv"),
             "people_in_frame": None,
             "people_so_far": None,
         }

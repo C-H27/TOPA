@@ -1,11 +1,12 @@
 # StudySpot detector demo
 
-This offline detector is calibrated for the team's 60-second synthetic
-`videos/learning_center_2.mp4` clip. It compares chair and tabletop regions
-with the first, empty frame. Chair-region changes estimate seated people.
-The items field is 0 or 1 and means a tabletop change was detected.
-
-Create the videos folder here and put the team's learning_center_2.mp4 inside before starting. The team ZIP includes the video.
+Place the team video in `videos/learning_center_1st_floor_3min_1080p.mp4`.
+Copy `.env.example` to `.env` for local configuration. The template reserves
+`ROBOFLOW_API_KEY` for the team's model integration. The included OpenCV
+fallback runs locally and uses the first frame as an empty-room reference.
+It was tested with the earlier 60-second clip. Verify the camera alignment
+and the empty reference before interpreting results on the three-minute clip.
+Defaults are in the settings block at the top of `main.py`.
 
 ## Windows launcher
 
@@ -24,7 +25,7 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-This writes `output/tables.csv` and `output/room.csv`. Room totals are reported
+This writes `output/tables_status.csv` and `output/occupancy_log.csv`. The latest observation is saved to `output/live.json` after every sample. Room totals are reported
 every 10 seconds. The people total covers seated people at the mapped tables.
 People walking in aisles and unique visitors are outside this estimate.
 The detector uses fixed regions and pixel changes. Accuracy on other videos
