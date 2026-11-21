@@ -19,12 +19,22 @@
   <h1>Table detection</h1>
   <p>Choosing a file starts analysis automatically. Photos and sampled video frames are sent to Roboflow. The team demo video can also run locally when cloud detection is unavailable.</p>
   <section>
-    <label>Photo or video <input id="file" type="file" accept="image/jpeg,image/png,video/mp4"></label>
+    <button id="choose" type="button">Choose photo or video</button>
+    <input id="file" type="file" hidden accept="image/jpeg,image/png,video/mp4">
+    <span id="filename">No file selected</span>
     <button id="run" hidden>Restart detection</button>
     <button id="stop" hidden>Stop sampling</button>
     <p id="message" role="status">Choose a file to begin.</p>
     <p id="analysis" hidden style="white-space:pre-wrap"></p>
-    <video id="video" hidden muted playsinline controls loop></video>
+    <div id="player" hidden>
+      <video id="video" hidden muted playsinline loop></video>
+      <div>
+        <button id="play" type="button">Play</button>
+        <input id="seek" type="range" aria-label="Video position in seconds" min="0" max="0" step="0.1" value="0">
+        <span id="time"></span>
+        <button id="expand" type="button">Full screen</button>
+      </div>
+    </div>
     <canvas id="result" hidden aria-label="Selected frame with detected table locations"></canvas>
   </section>
 </main>
@@ -32,6 +42,20 @@
 <script>
 const el = id => document.getElementById(id);
 const file = el("file"), video = el("video"), result = el("result"), run = el("run");
+el("choose").onclick = () => file.click();
+el("play").onclick = () => video.paused ? video.play() : video.pause();
+video.onplay = () => { el("play").textContent = "Pause"; };
+video.onpause = () => { el("play").textContent = "Play"; };
+const clock = seconds => Math.floor(seconds / 60) + ":" + String(Math.floor(seconds % 60)).padStart(2, "0");
+video.ontimeupdate = () => {
+  if (!Number.isFinite(video.duration)) return;
+  el("seek").max = video.duration;
+  el("seek").value = video.currentTime;
+  el("time").textContent = clock(video.currentTime) + " / " + clock(video.duration);
+};
+el("seek").oninput = () => { video.currentTime = Number(el("seek").value); };
+el("expand").onclick = () => document.fullscreenElement ? document.exitFullscreen() : el("player").requestFullscreen();
+document.onfullscreenchange = () => { el("expand").textContent = document.fullscreenElement ? "Exit full screen" : "Full screen"; };
 let source, objectURL, generation = 0, timer, fallback;
 function stop() {
   generation++;
@@ -50,9 +74,10 @@ file.onchange = async () => {
   run.hidden = true;
   el("analysis").hidden = true;
   run.disabled = true;
-  video.hidden = result.hidden = true;
+  el("player").hidden = video.hidden = result.hidden = true;
   if (objectURL) URL.revokeObjectURL(objectURL);
   const selected = file.files[0];
+  el("filename").textContent = selected ? selected.name : "No file selected";
   if (!selected) return;
   objectURL = URL.createObjectURL(selected);
   try {
@@ -61,7 +86,7 @@ file.onchange = async () => {
       await new Promise((resolve, reject) => { video.onloadeddata = resolve; video.onerror = reject; });
       if (version !== generation) return;
       source = video;
-      video.hidden = false;
+      el("player").hidden = video.hidden = false;
       const detector = await demoDetector(selected, video);
       if (version !== generation) return;
       fallback = detector;
