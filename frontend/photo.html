@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Table detection · Smart Table Finder</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: auto; padding: 2rem 1rem; max-width: 64rem; font: 1rem/1.5 system-ui,sans-serif; color: #17263b; background: #f5f7fa; }
+  h1 { margin-bottom: .25rem; }
+  section { background: white; padding: 1rem; border: 1px solid #ced7e2; border-radius: .6rem; }
+  button, input { font: inherit; margin: .25rem; }
+  button { padding: .4rem .8rem; }
+  canvas, video { max-width: 100%; height: auto; }
+  canvas { display: block; margin-top: 1rem; }
+  canvas[hidden] { display: none; }
+</style>
+<main>
+  <a href="/">← Live dashboard</a>
+  <h1>Table detection</h1>
+  <p>Choose a room photo or video. Starting detection sends the photo or sampled frames to Roboflow Cloud.</p>
+  <section>
+    <label>Photo or video <input id="file" type="file" accept="image/jpeg,image/png,video/mp4"></label>
+    <button id="run" disabled>Start detection</button>
+    <button id="stop" hidden>Stop sampling</button>
+    <label id="auth" hidden>Backend write token <input type="password" id="token" autocomplete="off"></label>
+    <p id="message" role="status">Choose a file to begin.</p>
+    <video id="video" hidden muted playsinline controls loop></video>
+    <canvas id="result" hidden aria-label="Selected frame with detected table locations"></canvas>
+  </section>
+</main>
+<script>
+const el = id => document.getElementById(id);
+const file = el("file"), video = el("video"), result = el("result"), run = el("run");
+let source, objectURL, generation = 0, timer;
+function stop() {
+  generation++;
+  clearTimeout(timer);
+  video.pause();
+  el("stop").hidden = true;
+  run.disabled = !source;
+}
+el("stop").onclick = () => { stop(); el("message").textContent = "Sampling stopped."; };
+file.onchange = async () => {
+  stop();
+  const version = generation;
+  source = null;
+  run.disabled = true;
+  video.hidden = result.hidden = true;
+  if (objectURL) URL.revokeObjectURL(objectURL);
+  const selected = file.files[0];
+  if (!selected) return;
+  objectURL = URL.createObjectURL(selected);
+  try {
+    if (selected.type.startsWith("video/") || /\.mp4$/i.test(selected.name)) {
+      video.src = objectURL;
+      await new Promise((resolve, reject) => { video.onloadeddata = resolve; video.onerror = reject; });
+      if (version !== generation) return;
+      source = video;
+      video.hidden = false;
+    } else {
+      const image = new Image();
+      image.src = objectURL;
+      await image.decode();
+      if (version !== generation) return;
+      source = image;
+    }
+    run.disabled = false;
+    el("message").textContent = "Ready to detect tables.";
+  } catch { if (version === generation) el("message").textContent = "This file could not be opened."; }
+};
+run.onclick = async () => {
+  stop();
+  const version = generation;
+  run.disabled = true;
+  result.hidden = true;
+  const movie = source === video;
+  el("stop").hidden = !movie;
+  async function sample() {
+    const started = performance.now();
+    const frame = document.createElement("canvas");
+    frame.width = movie ? video.videoWidth : source.naturalWidth;
+    frame.height = movie ? video.videoHeight : source.naturalHeight;
+    frame.getContext("2d").drawImage(source, 0, 0);
+    const data = new FormData();
+    const blob = await new Promise(resolve => frame.toBlob(resolve, "image/jpeg", .92));
+    if (version !== generation) return;
+    data.append("file", blob, "frame.jpg");
+    const headers = el("token").value ? {Authorization: "Bearer " + el("token").value} : {};
+    const response = await fetch("/detect/photo", {method: "POST", body: data, headers});
+    const body = await response.json();
+    if (version !== generation) return;
+    if (response.status === 401) el("auth").hidden = false;
+    if (!response.ok) throw Error(body.detail || "Detection failed.");
+    result.width = frame.width;
+    result.height = frame.height;
+    const ctx = result.getContext("2d");
+    ctx.drawImage(frame, 0, 0);
+    ctx.scale(frame.width / body.image.width, frame.height / body.image.height);
+    const size = Math.max(12, body.image.width / 85);
+    ctx.font = "bold " + size + "px sans-serif";
+    ctx.lineWidth = Math.max(2, size / 6);
+    for (const box of body.predictions) {
+      const x = box.x - box.width / 2, y = box.y - box.height / 2;
+      ctx.strokeStyle = ctx.fillStyle = "#075985";
+      ctx.strokeRect(x, y, box.width, box.height);
+      const top = Math.max(0, y - size * 1.5);
+      ctx.fillRect(x, top, ctx.measureText(box.label).width + 8, size * 1.5);
+      ctx.fillStyle = "white";
+      ctx.fillText(box.label, x + 4, top + size);
+    }
+    result.hidden = false;
+    el("message").textContent = body.predictions.length + " table boxes detected.";
+    if (movie) timer = setTimeout(next, Math.max(0, 1000 - (performance.now() - started)));
+    else run.disabled = false;
+  }
+  async function next() {
+    try { await sample(); }
+    catch (error) {
+      if (version !== generation) return;
+      stop();
+      el("message").textContent = error.message;
+    }
+  }
+  el("message").textContent = "Detecting tables…";
+  if (movie) {
+    try { await video.play(); }
+    catch { stop(); el("message").textContent = "Video playback could not start."; return; }
+  }
+  if (version === generation) await next();
+};
+</script>
+</html>

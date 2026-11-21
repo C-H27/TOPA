@@ -53,9 +53,25 @@ A status only changes if it stays the same for about 15 seconds, so someone walk
 
 ## Privacy
 
-- Video is processed on the spot and **never stored or uploaded**
+- The OpenCV video demo processes frames locally. The separate photo detection page sends a selected image or sampled video frames to Roboflow Cloud when the user starts detection.
 - **No face recognition**; the system only knows *that* someone is at a table, not *who*
-- Only table statuses (for example, "Table 3: Full") leave the camera computer
+- The local detector sends only table counts to the dashboard backend.
+
+## Roboflow photo and video-frame detection
+
+Copy `studyspot-agent/.env.example` to `studyspot-agent/.env` and set
+`ROBOFLOW_API_KEY` on the backend computer. Check the workspace and workflow
+against the model team's current deployment. Set `ROBOFLOW_OUTPUT` to the named
+object-detection output for tables (default `predictions`). This output must
+include image dimensions and the center, width, height and class of each box
+in the input image coordinate system.
+
+Start the backend, open the dashboard and select **Detect tables in a photo or video**.
+Choose a JPEG, PNG or MP4 and click **Start detection**. Photos use one request.
+Videos loop and sample at most one frame per second, with one request in flight.
+**Stop sampling** ends the replay. The result shows the exact sampled frame
+with each table's original class label. A valid empty prediction list shows zero boxes.
+The dashboard's local seat-count demo runs separately.
 
 ## Repository structure
 

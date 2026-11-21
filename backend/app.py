@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .status_logic import Status, TableState
 from .video_upload import router as upload_router
+from .photo_layout import router as photo_router
 
 app = FastAPI(title="Smart Table Finder")
 tables: dict[int, TableState] = {}
@@ -82,6 +83,7 @@ def authorize_update(credentials: HTTPAuthorizationCredentials | None = Depends(
 
 
 app.include_router(upload_router, dependencies=[Depends(authorize_update)])
+app.include_router(photo_router, dependencies=[Depends(authorize_update)])
 
 
 @app.post("/update/room", response_model=RoomCounts, dependencies=[Depends(authorize_update)])
