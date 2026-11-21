@@ -97,6 +97,17 @@ python detector/detect.py --source sample_videos/demo.mp4
 #    http://localhost:8000
 ```
 
+## Dashboard
+
+The dashboard (`frontend/index.html`) shows the Learning Center laid out like the camera view: the three group rooms at the top, the 12 study tables in a 4 x 3 grid, and the 8 wall desks on the right. Each table is a card coloured by status (Empty, Semi-occupied, Occupied, Items only, No data), with a dot per seat, and summary counts at the top. It refreshes every 2 seconds from `GET /status`.
+
+<!-- Screenshots: add files to docs/screenshots/ and uncomment
+![Dashboard](docs/screenshots/dashboard.png)
+![Phone view](docs/screenshots/dashboard-phone.png)
+-->
+
+Details, table IDs and how to test it: [frontend/README.md](frontend/README.md)
+
 ## Results
 
 [Add your test results, for example: "On [N] minutes of test video, the system classified tables correctly [X]% of the time."]
